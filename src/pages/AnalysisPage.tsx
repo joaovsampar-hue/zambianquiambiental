@@ -19,7 +19,7 @@ function FieldWithAiIndicator({ label, value, onChange, required, multiline }: {
     <div className="space-y-1.5">
       <div className="flex items-center gap-2">
         <Label className="text-xs">{label}{required && ' *'}</Label>
-        {hasAiValue && <Bot className="w-3 h-3 text-primary" title="Preenchido pela IA" />}
+        {hasAiValue && <span title="Preenchido pela IA"><Bot className="w-3 h-3 text-primary" /></span>}
       </div>
       {multiline ? (
         <Textarea value={value} onChange={e => onChange(e.target.value)} className="text-sm" rows={3} />
