@@ -14,7 +14,166 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      analyses: {
+        Row: {
+          alerts: Json | null
+          created_at: string
+          created_by: string
+          extracted_data: Json | null
+          id: string
+          pdf_path: string | null
+          property_id: string
+          status: string
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          alerts?: Json | null
+          created_at?: string
+          created_by: string
+          extracted_data?: Json | null
+          id?: string
+          pdf_path?: string | null
+          property_id: string
+          status?: string
+          updated_at?: string
+          version?: number
+        }
+        Update: {
+          alerts?: Json | null
+          created_at?: string
+          created_by?: string
+          extracted_data?: Json | null
+          id?: string
+          pdf_path?: string | null
+          property_id?: string
+          status?: string
+          updated_at?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "analyses_property_id_fkey"
+            columns: ["property_id"]
+            isOneToOne: false
+            referencedRelation: "properties"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      clients: {
+        Row: {
+          cpf_cnpj: string | null
+          created_at: string
+          created_by: string
+          email: string | null
+          id: string
+          name: string
+          notes: string | null
+          phone: string | null
+          updated_at: string
+        }
+        Insert: {
+          cpf_cnpj?: string | null
+          created_at?: string
+          created_by: string
+          email?: string | null
+          id?: string
+          name: string
+          notes?: string | null
+          phone?: string | null
+          updated_at?: string
+        }
+        Update: {
+          cpf_cnpj?: string | null
+          created_at?: string
+          created_by?: string
+          email?: string | null
+          id?: string
+          name?: string
+          notes?: string | null
+          phone?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          email: string
+          full_name: string
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          email?: string
+          full_name?: string
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          full_name?: string
+          id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      properties: {
+        Row: {
+          client_id: string
+          created_at: string
+          created_by: string
+          denomination: string
+          id: string
+          municipality: string | null
+          notes: string | null
+          registration_number: string | null
+          state: string | null
+          total_area_ha: number | null
+          updated_at: string
+        }
+        Insert: {
+          client_id: string
+          created_at?: string
+          created_by: string
+          denomination: string
+          id?: string
+          municipality?: string | null
+          notes?: string | null
+          registration_number?: string | null
+          state?: string | null
+          total_area_ha?: number | null
+          updated_at?: string
+        }
+        Update: {
+          client_id?: string
+          created_at?: string
+          created_by?: string
+          denomination?: string
+          id?: string
+          municipality?: string | null
+          notes?: string | null
+          registration_number?: string | null
+          state?: string | null
+          total_area_ha?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "properties_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
