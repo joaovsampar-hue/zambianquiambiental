@@ -9,7 +9,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Save, AlertTriangle, AlertCircle, Info, Bot } from 'lucide-react';
+import { ArrowLeft, Save, AlertTriangle, AlertCircle, Info, Bot, FileText, FileDown } from 'lucide-react';
+import { exportToWord, exportToPdf } from '@/lib/exportAnalysis';
 
 function FieldWithAiIndicator({ label, value, onChange, required, multiline }: {
   label: string; value: string; onChange: (v: string) => void; required?: boolean; multiline?: boolean;
