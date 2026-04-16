@@ -59,6 +59,7 @@ export default function BoundariesTab({ formData, updateField, getField }: Bound
         state: '',
         total_area: '',
         owners: [],
+        pdfs: [],
         status: 'pending',
       },
     ]);
