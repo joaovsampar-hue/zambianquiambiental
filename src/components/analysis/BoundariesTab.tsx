@@ -10,6 +10,14 @@ import { useToast } from '@/hooks/use-toast';
 import { Bot, Upload, Loader2, Trash2, MapPin, FileText, User, Building } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 
+interface NeighborPdf {
+  file_name: string;
+  pdf_path: string;
+  extracted_data?: any;
+  status: 'pending' | 'processing' | 'completed' | 'error';
+  error_message?: string;
+}
+
 interface NeighborProperty {
   registration_number: string;
   denomination: string;
@@ -17,6 +25,7 @@ interface NeighborProperty {
   state: string;
   total_area: string;
   owners: { name: string; cpf_cnpj: string }[];
+  pdfs: NeighborPdf[];
   status: 'pending' | 'processing' | 'completed' | 'error';
   error_message?: string;
 }
