@@ -7,14 +7,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
-import { Bot, Upload, Loader2, Trash2, MapPin, FileText, User, Building } from 'lucide-react';
+import { Bot, Upload, Loader2, Trash2, MapPin, FileText, User, Building, Plus } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 
 interface NeighborPdf {
   file_name: string;
   pdf_path: string;
-  extracted_data?: any;
-  status: 'pending' | 'processing' | 'completed' | 'error';
+  status: 'processing' | 'completed' | 'error';
   error_message?: string;
 }
 
@@ -39,11 +38,14 @@ interface BoundariesTabProps {
 export default function BoundariesTab({ formData, updateField, getField }: BoundariesTabProps) {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [processingIndex, setProcessingIndex] = useState<number | null>(null);
+  const [processingKey, setProcessingKey] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
 
   const roteiro = getField('boundaries.roteiro') || '';
-  const neighbors: NeighborProperty[] = formData?.boundaries?.neighbors ?? [];
+  const neighbors: NeighborProperty[] = (formData?.boundaries?.neighbors ?? []).map((n: any) => ({
+    ...n,
+    pdfs: n.pdfs ?? [],
+  }));
 
   const updateNeighbors = (newNeighbors: NeighborProperty[]) => {
     updateField('boundaries.neighbors', newNeighbors);
@@ -75,26 +77,46 @@ export default function BoundariesTab({ formData, updateField, getField }: Bound
     updateNeighbors(updated);
   };
 
+  const removePdf = (neighborIndex: number, pdfIndex: number) => {
+    const updated = [...neighbors];
+    updated[neighborIndex] = {
+      ...updated[neighborIndex],
+      pdfs: updated[neighborIndex].pdfs.filter((_, i) => i !== pdfIndex),
+    };
+    updateNeighbors(updated);
+  };
+
   const processNeighborPdf = async (index: number, file: File) => {
     if (!user) return;
-    setProcessingIndex(index);
+    const key = `${index}-${Date.now()}`;
+    setProcessingKey(key);
     setProgress(10);
 
+    // Add PDF entry immediately
+    const pdfEntry: NeighborPdf = {
+      file_name: file.name,
+      pdf_path: '',
+      status: 'processing',
+    };
+    const updated = [...neighbors];
+    updated[index] = {
+      ...updated[index],
+      pdfs: [...updated[index].pdfs, pdfEntry],
+      status: 'processing',
+    };
+    updateNeighbors(updated);
+    const pdfIdx = updated[index].pdfs.length - 1;
+
     try {
-      // Upload PDF
       const filePath = `${user.id}/neighbor_${Date.now()}_${file.name}`;
       const { error: uploadError } = await supabase.storage.from('matriculas').upload(filePath, file);
       if (uploadError) throw uploadError;
       setProgress(30);
 
-      updateNeighborField(index, 'status', 'processing');
-
-      // Process with AI
       setProgress(50);
       const { data: funcData, error: funcError } = await supabase.functions.invoke('process-matricula', {
         body: { analysisId: null, pdfPath: filePath },
       });
-
       if (funcError) throw funcError;
       setProgress(90);
 
@@ -105,29 +127,55 @@ export default function BoundariesTab({ formData, updateField, getField }: Bound
         cpf_cnpj: o.cpf_cnpj || '',
       }));
 
-      const updated = [...neighbors];
-      updated[index] = {
-        ...updated[index],
-        denomination: ident.denomination || '',
-        municipality: ident.municipality || '',
-        state: ident.state || '',
-        total_area: ident.total_area || '',
-        registration_number: ident.registration_number || updated[index].registration_number,
-        owners,
-        status: 'completed',
-      };
-      updateNeighbors(updated);
+      // Re-read neighbors to avoid stale state
+      const freshNeighbors = [...neighbors];
+      const n = { ...freshNeighbors[index] };
+      const freshPdfs = [...(n.pdfs || [])];
+      freshPdfs[pdfIdx] = { file_name: file.name, pdf_path: filePath, status: 'completed' };
+      n.pdfs = freshPdfs;
+
+      // Merge extracted data (latest PDF wins for fields)
+      n.denomination = ident.denomination || n.denomination;
+      n.municipality = ident.municipality || n.municipality;
+      n.state = ident.state || n.state;
+      n.total_area = ident.total_area || n.total_area;
+      n.registration_number = ident.registration_number || n.registration_number;
+      // Merge owners - add new ones
+      const existingCpfs = new Set(n.owners.map(o => o.cpf_cnpj));
+      for (const owner of owners) {
+        if (!existingCpfs.has(owner.cpf_cnpj)) {
+          n.owners.push(owner);
+        }
+      }
+      n.status = 'completed';
+      freshNeighbors[index] = n;
+      updateNeighbors(freshNeighbors);
       setProgress(100);
 
-      toast({ title: `Confrontante ${index + 1} analisado com sucesso!` });
+      toast({ title: `Matrícula "${file.name}" analisada com sucesso!` });
     } catch (e: any) {
-      updateNeighborField(index, 'status', 'error');
-      updateNeighborField(index, 'error_message', e.message);
-      toast({ title: 'Erro ao processar confrontante', description: e.message, variant: 'destructive' });
+      // Mark PDF as error
+      const errNeighbors = [...neighbors];
+      const en = { ...errNeighbors[index] };
+      const errPdfs = [...(en.pdfs || [])];
+      if (errPdfs[pdfIdx]) {
+        errPdfs[pdfIdx] = { ...errPdfs[pdfIdx], status: 'error', error_message: e.message };
+      }
+      en.pdfs = errPdfs;
+      en.status = en.pdfs.some(p => p.status === 'completed') ? 'completed' : 'error';
+      errNeighbors[index] = en;
+      updateNeighbors(errNeighbors);
+      toast({ title: 'Erro ao processar matrícula', description: e.message, variant: 'destructive' });
     } finally {
-      setProcessingIndex(null);
+      setProcessingKey(null);
       setProgress(0);
     }
+  };
+
+  const handleMultipleFiles = (index: number, files: FileList) => {
+    Array.from(files).forEach((file, fi) => {
+      setTimeout(() => processNeighborPdf(index, file), fi * 500);
+    });
   };
 
   return (
@@ -170,7 +218,7 @@ export default function BoundariesTab({ formData, updateField, getField }: Bound
             </Button>
           </div>
           <p className="text-xs text-muted-foreground mt-1">
-            Faça upload das matrículas dos imóveis confrontantes para extrair automaticamente os dados atualizados
+            Faça upload de uma ou mais matrículas por confrontante para extrair automaticamente os dados atualizados
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -188,14 +236,14 @@ export default function BoundariesTab({ formData, updateField, getField }: Bound
               <div className="flex items-center justify-between bg-muted/50 px-4 py-2.5">
                 <span className="text-sm font-semibold text-primary">Confrontante {i + 1}</span>
                 <div className="flex items-center gap-2">
+                  {neighbor.pdfs.length > 0 && (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
+                      {neighbor.pdfs.length} matrícula{neighbor.pdfs.length > 1 ? 's' : ''}
+                    </span>
+                  )}
                   {neighbor.status === 'completed' && (
                     <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
                       ✓ Analisado
-                    </span>
-                  )}
-                  {neighbor.status === 'error' && (
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-destructive/10 text-destructive font-medium">
-                      Erro
                     </span>
                   )}
                   <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => removeNeighbor(i)}>
@@ -205,58 +253,82 @@ export default function BoundariesTab({ formData, updateField, getField }: Bound
               </div>
 
               <div className="p-4 space-y-4">
-                {/* Registration number + upload */}
-                <div className="flex items-end gap-3">
-                  <div className="flex-1 space-y-1.5">
-                    <Label className="text-xs">Nº da Matrícula</Label>
-                    <Input
-                      value={neighbor.registration_number}
-                      onChange={e => updateNeighborField(i, 'registration_number', e.target.value)}
-                      placeholder="Ex: 12345"
-                      className="text-sm h-9"
-                    />
+                {/* Registration number */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Nº da Matrícula</Label>
+                  <Input
+                    value={neighbor.registration_number}
+                    onChange={e => updateNeighborField(i, 'registration_number', e.target.value)}
+                    placeholder="Ex: 12345"
+                    className="text-sm h-9"
+                  />
+                </div>
+
+                {/* PDFs list */}
+                {neighbor.pdfs.length > 0 && (
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold">Matrículas enviadas</Label>
+                    {neighbor.pdfs.map((pdf, pi) => (
+                      <div key={pi} className="flex items-center gap-2 text-xs bg-muted/30 rounded-md px-3 py-2">
+                        <FileText className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                        <span className="flex-1 truncate">{pdf.file_name}</span>
+                        {pdf.status === 'processing' && <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />}
+                        {pdf.status === 'completed' && <span className="text-primary font-medium">✓</span>}
+                        {pdf.status === 'error' && (
+                          <span className="text-destructive font-medium" title={pdf.error_message}>✗</span>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-5 w-5 shrink-0"
+                          onClick={() => removePdf(i, pi)}
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </Button>
+                      </div>
+                    ))}
                   </div>
-                  <div>
-                    <input
-                      id={`neighbor-pdf-${i}`}
-                      type="file"
-                      accept=".pdf"
-                      className="hidden"
-                      onChange={e => {
-                        const f = e.target.files?.[0];
-                        if (f) processNeighborPdf(i, f);
-                      }}
-                    />
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      className="h-9"
-                      disabled={processingIndex !== null}
-                      onClick={() => document.getElementById(`neighbor-pdf-${i}`)?.click()}
-                    >
-                      {processingIndex === i ? (
-                        <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />Analisando...</>
-                      ) : (
-                        <><Upload className="w-3.5 h-3.5 mr-1.5" />Upload Matrícula</>
-                      )}
-                    </Button>
-                  </div>
+                )}
+
+                {/* Upload button - always visible */}
+                <div>
+                  <input
+                    id={`neighbor-pdf-${i}`}
+                    type="file"
+                    accept=".pdf"
+                    multiple
+                    className="hidden"
+                    onChange={e => {
+                      if (e.target.files && e.target.files.length > 0) {
+                        handleMultipleFiles(i, e.target.files);
+                        e.target.value = '';
+                      }
+                    }}
+                  />
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="h-9"
+                    disabled={processingKey !== null}
+                    onClick={() => document.getElementById(`neighbor-pdf-${i}`)?.click()}
+                  >
+                    {processingKey?.startsWith(`${i}-`) ? (
+                      <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />Analisando...</>
+                    ) : (
+                      <><Plus className="w-3.5 h-3.5 mr-1.5" />Adicionar Matrícula(s)</>
+                    )}
+                  </Button>
                 </div>
 
                 {/* Progress bar when processing */}
-                {processingIndex === i && (
+                {processingKey?.startsWith(`${i}-`) && (
                   <div className="space-y-1">
                     <Progress value={progress} className="h-1.5" />
                     <p className="text-xs text-muted-foreground">Processando matrícula com IA...</p>
                   </div>
                 )}
 
-                {/* Error message */}
-                {neighbor.status === 'error' && neighbor.error_message && (
-                  <p className="text-xs text-destructive">{neighbor.error_message}</p>
-                )}
-
-                {/* Extracted data (only show if completed or manually filled) */}
+                {/* Extracted data */}
                 {(neighbor.status === 'completed' || neighbor.denomination) && (
                   <div className="space-y-3">
                     <div className="grid grid-cols-2 gap-3">
