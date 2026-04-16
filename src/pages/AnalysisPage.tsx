@@ -9,7 +9,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, Save, AlertTriangle, AlertCircle, Info, Bot } from 'lucide-react';
+import { ArrowLeft, Save, AlertTriangle, AlertCircle, Info, Bot, FileText, FileDown } from 'lucide-react';
+import { exportToWord, exportToPdf } from '@/lib/exportAnalysis';
 
 function FieldWithAiIndicator({ label, value, onChange, required, multiline }: {
   label: string; value: string; onChange: (v: string) => void; required?: boolean; multiline?: boolean;
@@ -127,10 +128,38 @@ export default function AnalysisPage() {
             </p>
           </div>
         </div>
-        <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
-          <Save className="w-4 h-4 mr-2" />
-          {saveMutation.isPending ? 'Salvando...' : 'Salvar Análise'}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => {
+            const d = {
+              extractedData: formData,
+              alerts,
+              propertyName: (analysis as any).property?.denomination ?? 'Imóvel',
+              clientName: (analysis as any).property?.client?.name ?? '',
+              version: analysis.version,
+              createdAt: analysis.created_at,
+            };
+            exportToWord(d);
+          }}>
+            <FileText className="w-4 h-4 mr-2" />Word
+          </Button>
+          <Button variant="outline" onClick={() => {
+            const d = {
+              extractedData: formData,
+              alerts,
+              propertyName: (analysis as any).property?.denomination ?? 'Imóvel',
+              clientName: (analysis as any).property?.client?.name ?? '',
+              version: analysis.version,
+              createdAt: analysis.created_at,
+            };
+            exportToPdf(d);
+          }}>
+            <FileDown className="w-4 h-4 mr-2" />PDF
+          </Button>
+          <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
+            <Save className="w-4 h-4 mr-2" />
+            {saveMutation.isPending ? 'Salvando...' : 'Salvar Análise'}
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
