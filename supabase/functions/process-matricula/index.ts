@@ -94,9 +94,15 @@ serve(async (req) => {
       .download(pdfPath);
     if (downloadError) throw downloadError;
 
-    // Convert PDF to base64 for vision model
+    // Convert PDF to base64 for vision model (chunked to avoid stack overflow)
     const arrayBuffer = await fileData.arrayBuffer();
-    const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+    const bytes = new Uint8Array(arrayBuffer);
+    let binary = "";
+    const CHUNK = 8192;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + CHUNK, bytes.length)));
+    }
+    const base64 = btoa(binary);
 
     // Send to Lovable AI Gateway with vision
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
