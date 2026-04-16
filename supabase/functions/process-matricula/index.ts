@@ -40,6 +40,7 @@ Analise o texto/imagem da matrícula fornecida e extraia TODOS os dados disponí
     { "name": "", "cpf": "", "type": "", "legal_basis": "" }
   ],
   "boundaries": {
+    "roteiro": "transcrição completa do roteiro perimétrico/descrição de confrontações conforme consta na matrícula, em texto único corrido",
     "north": "descrição",
     "south": "descrição",
     "east": "descrição",

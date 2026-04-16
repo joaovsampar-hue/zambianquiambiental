@@ -11,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { ArrowLeft, Save, AlertTriangle, AlertCircle, Info, Bot, FileText, FileDown } from 'lucide-react';
 import { exportToWord, exportToPdf } from '@/lib/exportAnalysis';
+import BoundariesTab from '@/components/analysis/BoundariesTab';
 
 function FieldWithAiIndicator({ label, value, onChange, required, multiline }: {
   label: string; value: string; onChange: (v: string) => void; required?: boolean; multiline?: boolean;
@@ -256,14 +257,7 @@ export default function AnalysisPage() {
             </TabsContent>
 
             <TabsContent value="boundaries">
-              <Card>
-                <CardContent className="p-5 grid grid-cols-2 gap-4">
-                  <FieldWithAiIndicator label="Norte" value={getField('boundaries.north')} onChange={v => updateField('boundaries.north', v)} multiline />
-                  <FieldWithAiIndicator label="Sul" value={getField('boundaries.south')} onChange={v => updateField('boundaries.south', v)} multiline />
-                  <FieldWithAiIndicator label="Leste" value={getField('boundaries.east')} onChange={v => updateField('boundaries.east', v)} multiline />
-                  <FieldWithAiIndicator label="Oeste" value={getField('boundaries.west')} onChange={v => updateField('boundaries.west', v)} multiline />
-                </CardContent>
-              </Card>
+              <BoundariesTab formData={formData} updateField={updateField} getField={getField} />
             </TabsContent>
 
             <TabsContent value="transfers">
