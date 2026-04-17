@@ -22,6 +22,7 @@ export type Database = {
           extracted_data: Json | null
           id: string
           pdf_path: string | null
+          process_id: string | null
           property_id: string
           status: string
           updated_at: string
@@ -34,6 +35,7 @@ export type Database = {
           extracted_data?: Json | null
           id?: string
           pdf_path?: string | null
+          process_id?: string | null
           property_id: string
           status?: string
           updated_at?: string
@@ -46,12 +48,20 @@ export type Database = {
           extracted_data?: Json | null
           id?: string
           pdf_path?: string | null
+          process_id?: string | null
           property_id?: string
           status?: string
           updated_at?: string
           version?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "analyses_process_id_fkey"
+            columns: ["process_id"]
+            isOneToOne: false
+            referencedRelation: "processes"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "analyses_property_id_fkey"
             columns: ["property_id"]
@@ -96,6 +106,245 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      process_geometry: {
+        Row: {
+          coordinates_text: string | null
+          created_at: string
+          created_by: string
+          geojson: Json | null
+          id: string
+          kml_raw: string | null
+          process_id: string
+          reference_lat: number | null
+          reference_lng: number | null
+          source: string | null
+          updated_at: string
+        }
+        Insert: {
+          coordinates_text?: string | null
+          created_at?: string
+          created_by: string
+          geojson?: Json | null
+          id?: string
+          kml_raw?: string | null
+          process_id: string
+          reference_lat?: number | null
+          reference_lng?: number | null
+          source?: string | null
+          updated_at?: string
+        }
+        Update: {
+          coordinates_text?: string | null
+          created_at?: string
+          created_by?: string
+          geojson?: Json | null
+          id?: string
+          kml_raw?: string | null
+          process_id?: string
+          reference_lat?: number | null
+          reference_lng?: number | null
+          source?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "process_geometry_process_id_fkey"
+            columns: ["process_id"]
+            isOneToOne: true
+            referencedRelation: "processes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      process_neighbors: {
+        Row: {
+          address: string | null
+          birth_date: string | null
+          car_number: string | null
+          ccir_number: string | null
+          consent_status: string
+          converted_client_id: string | null
+          cpf_cnpj: string | null
+          created_at: string
+          created_by: string
+          email: string | null
+          extracted_data: Json
+          follow_up_at: string | null
+          full_name: string | null
+          id: string
+          last_contact_at: string | null
+          marital_status: string | null
+          marriage_regime: string | null
+          needs_title_check: boolean
+          neighbor_type: string
+          notes: string | null
+          pdfs: Json
+          phones: Json
+          positions: string[]
+          process_id: string
+          property_denomination: string | null
+          registration_number: string | null
+          registry_office: string | null
+          rg: string | null
+          rg_issuer: string | null
+          spouse_cpf: string | null
+          spouse_name: string | null
+          spouse_rg: string | null
+          updated_at: string
+        }
+        Insert: {
+          address?: string | null
+          birth_date?: string | null
+          car_number?: string | null
+          ccir_number?: string | null
+          consent_status?: string
+          converted_client_id?: string | null
+          cpf_cnpj?: string | null
+          created_at?: string
+          created_by: string
+          email?: string | null
+          extracted_data?: Json
+          follow_up_at?: string | null
+          full_name?: string | null
+          id?: string
+          last_contact_at?: string | null
+          marital_status?: string | null
+          marriage_regime?: string | null
+          needs_title_check?: boolean
+          neighbor_type?: string
+          notes?: string | null
+          pdfs?: Json
+          phones?: Json
+          positions?: string[]
+          process_id: string
+          property_denomination?: string | null
+          registration_number?: string | null
+          registry_office?: string | null
+          rg?: string | null
+          rg_issuer?: string | null
+          spouse_cpf?: string | null
+          spouse_name?: string | null
+          spouse_rg?: string | null
+          updated_at?: string
+        }
+        Update: {
+          address?: string | null
+          birth_date?: string | null
+          car_number?: string | null
+          ccir_number?: string | null
+          consent_status?: string
+          converted_client_id?: string | null
+          cpf_cnpj?: string | null
+          created_at?: string
+          created_by?: string
+          email?: string | null
+          extracted_data?: Json
+          follow_up_at?: string | null
+          full_name?: string | null
+          id?: string
+          last_contact_at?: string | null
+          marital_status?: string | null
+          marriage_regime?: string | null
+          needs_title_check?: boolean
+          neighbor_type?: string
+          notes?: string | null
+          pdfs?: Json
+          phones?: Json
+          positions?: string[]
+          process_id?: string
+          property_denomination?: string | null
+          registration_number?: string | null
+          registry_office?: string | null
+          rg?: string | null
+          rg_issuer?: string | null
+          spouse_cpf?: string | null
+          spouse_name?: string | null
+          spouse_rg?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "process_neighbors_converted_client_id_fkey"
+            columns: ["converted_client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "process_neighbors_process_id_fkey"
+            columns: ["process_id"]
+            isOneToOne: false
+            referencedRelation: "processes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      processes: {
+        Row: {
+          car_number: string | null
+          client_id: string
+          created_at: string
+          created_by: string
+          current_stage: string
+          id: string
+          last_activity_at: string
+          notes: string | null
+          process_number: string
+          property_id: string | null
+          service_type: string
+          status: string
+          title: string | null
+          updated_at: string
+        }
+        Insert: {
+          car_number?: string | null
+          client_id: string
+          created_at?: string
+          created_by: string
+          current_stage?: string
+          id?: string
+          last_activity_at?: string
+          notes?: string | null
+          process_number: string
+          property_id?: string | null
+          service_type?: string
+          status?: string
+          title?: string | null
+          updated_at?: string
+        }
+        Update: {
+          car_number?: string | null
+          client_id?: string
+          created_at?: string
+          created_by?: string
+          current_stage?: string
+          id?: string
+          last_activity_at?: string
+          notes?: string | null
+          process_number?: string
+          property_id?: string | null
+          service_type?: string
+          status?: string
+          title?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "processes_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "processes_property_id_fkey"
+            columns: ["property_id"]
+            isOneToOne: false
+            referencedRelation: "properties"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       profiles: {
         Row: {

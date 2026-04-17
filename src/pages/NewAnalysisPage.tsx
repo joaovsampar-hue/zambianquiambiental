@@ -1,11 +1,11 @@
-import { useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useCallback, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
@@ -15,11 +15,25 @@ export default function NewAnalysisPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const [searchParams] = useSearchParams();
+  const processId = searchParams.get('processId');
+  const presetPropertyId = searchParams.get('propertyId') ?? '';
   const [clientId, setClientId] = useState('');
-  const [propertyId, setPropertyId] = useState('');
+  const [propertyId, setPropertyId] = useState(presetPropertyId);
   const [file, setFile] = useState<File | null>(null);
   const [progress, setProgress] = useState(0);
   const [step, setStep] = useState('');
+
+  useEffect(() => {
+    if (!processId) return;
+    supabase.from('processes').select('client_id, property_id').eq('id', processId).single()
+      .then(({ data }) => {
+        if (data) {
+          setClientId(data.client_id);
+          if (data.property_id) setPropertyId(data.property_id);
+        }
+      });
+  }, [processId]);
 
   const { data: clients } = useQuery({
     queryKey: ['clients-list'],
@@ -67,7 +81,8 @@ export default function NewAnalysisPage() {
           pdf_path: filePath,
           status: 'processing',
           version,
-        })
+          process_id: processId ?? null,
+        } as any)
         .select('id')
         .single();
       if (insertError) throw insertError;
