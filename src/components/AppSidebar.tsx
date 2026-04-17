@@ -1,11 +1,12 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { LayoutDashboard, Users, PlusCircle, History, Leaf, LogOut } from 'lucide-react';
+import { LayoutDashboard, Users, PlusCircle, History, Leaf, LogOut, FolderPlus } from 'lucide-react';
 
 const navItems = [
-  { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/', icon: LayoutDashboard, label: 'Processos' },
+  { to: '/new-process', icon: FolderPlus, label: 'Novo processo' },
   { to: '/clients', icon: Users, label: 'Clientes' },
-  { to: '/new-analysis', icon: PlusCircle, label: 'Nova Análise' },
+  { to: '/new-analysis', icon: PlusCircle, label: 'Análise avulsa' },
   { to: '/history', icon: History, label: 'Histórico' },
 ];
 

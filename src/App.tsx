@@ -12,6 +12,8 @@ import ClientDetailPage from "@/pages/ClientDetailPage";
 import NewAnalysisPage from "@/pages/NewAnalysisPage";
 import AnalysisPage from "@/pages/AnalysisPage";
 import HistoryPage from "@/pages/HistoryPage";
+import NewProcessPage from "@/pages/NewProcessPage";
+import ProcessDetailPage from "@/pages/ProcessDetailPage";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
@@ -43,6 +45,8 @@ const App = () => (
               <Route path="/" element={<DashboardPage />} />
               <Route path="/clients" element={<ClientsPage />} />
               <Route path="/clients/:id" element={<ClientDetailPage />} />
+              <Route path="/new-process" element={<NewProcessPage />} />
+              <Route path="/processes/:id" element={<ProcessDetailPage />} />
               <Route path="/new-analysis" element={<NewAnalysisPage />} />
               <Route path="/analysis/:id" element={<AnalysisPage />} />
               <Route path="/history" element={<HistoryPage />} />
