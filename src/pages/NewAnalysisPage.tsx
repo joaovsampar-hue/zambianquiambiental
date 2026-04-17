@@ -81,7 +81,8 @@ export default function NewAnalysisPage() {
           pdf_path: filePath,
           status: 'processing',
           version,
-        })
+          process_id: processId ?? null,
+        } as any)
         .select('id')
         .single();
       if (insertError) throw insertError;
