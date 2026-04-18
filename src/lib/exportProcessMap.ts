@@ -94,7 +94,7 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
   const MAP_H = PAGE_H - MARGIN * 2;
 
   // Borda externa
-  pdf.setDrawColor(0).setLineWidth(0.4);
+  pdf.setDrawColor(0,0,0).setLineWidth(0.4);
   pdf.rect(MARGIN, MARGIN, PAGE_W - MARGIN * 2, PAGE_H - MARGIN * 2);
 
   // ===== Mapa (esquerda) =====
@@ -191,7 +191,7 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
       pdf.rect(sx, y, 8, 5, 'FD');
     } else {
       pdf.setFillColor(item.color[0], item.color[1], item.color[2]);
-      pdf.setDrawColor(0).setLineWidth(0.2);
+      pdf.setDrawColor(0,0,0).setLineWidth(0.2);
       pdf.rect(sx, y, 8, 5, 'FD');
     }
     pdf.setFontSize(8).setFont('helvetica', 'normal').setTextColor(0);
@@ -223,11 +223,11 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
 
 function drawNorthArrow(pdf: jsPDF, x: number, y: number, size: number) {
   // Triângulo preto apontando pra cima + "N"
-  pdf.setFillColor(0).setDrawColor(0);
+  pdf.setFillColor(0,0,0).setDrawColor(0);
   pdf.triangle(x + size / 2, y, x, y + size, x + size, y + size, 'F');
   pdf.setFillColor(255, 255, 255);
   pdf.triangle(x + size / 2, y + size * 0.25, x + size * 0.25, y + size * 0.95, x + size * 0.75, y + size * 0.95, 'F');
-  pdf.setFillColor(0).setFontSize(7).setFont('helvetica', 'bold').setTextColor(0);
+  pdf.setFillColor(0,0,0).setFontSize(7).setFont('helvetica', 'bold').setTextColor(0);
   pdf.text('N', x + size / 2, y + size + 3, { align: 'center' });
 }
 
@@ -249,7 +249,7 @@ function drawGraphicScale(pdf: jsPDF, x: number, y: number, width: number, scale
   // Barras alternadas preto/branco
   for (let i = 0; i < SEG; i++) {
     pdf.setFillColor(i % 2 === 0 ? 0 : 255, i % 2 === 0 ? 0 : 255, i % 2 === 0 ? 0 : 255);
-    pdf.setDrawColor(0).setLineWidth(0.2);
+    pdf.setDrawColor(0,0,0).setLineWidth(0.2);
     pdf.rect(x + i * realSegW, y, realSegW, 1.8, 'FD');
   }
   // Rótulos
