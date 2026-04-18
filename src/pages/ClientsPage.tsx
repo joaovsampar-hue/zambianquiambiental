@@ -47,6 +47,19 @@ export default function ClientsPage() {
     onError: (e: any) => toast({ title: 'Erro', description: e.message, variant: 'destructive' }),
   });
 
+  const deleteClient = useMutation({
+    mutationFn: async (clientId: string) => {
+      const { error } = await supabase.from('clients').delete().eq('id', clientId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['clients'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      toast({ title: 'Cliente excluído' });
+    },
+    onError: (e: any) => toast({ title: 'Erro ao excluir', description: e.message, variant: 'destructive' }),
+  });
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
@@ -120,7 +133,15 @@ export default function ClientsPage() {
                       <p className="text-xs text-muted-foreground">{c.cpf_cnpj || 'Sem CPF/CNPJ'} · {c.email || 'Sem e-mail'}</p>
                     </div>
                   </div>
-                  <ChevronRight className="w-5 h-5 text-muted-foreground" />
+                  <div className="flex items-center gap-2">
+                    <DeleteButton
+                      iconOnly
+                      title="Excluir cliente?"
+                      description={`O cliente "${c.name}" e todos os imóveis, processos e análises vinculados serão removidos permanentemente.`}
+                      onConfirm={async () => { await deleteClient.mutateAsync(c.id); }}
+                    />
+                    <ChevronRight className="w-5 h-5 text-muted-foreground" />
+                  </div>
                 </CardContent>
               </Card>
             </Link>
