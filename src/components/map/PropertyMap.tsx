@@ -74,6 +74,7 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
   const [carInput, setCarInput] = useState(carNumber ?? '');
   const [loadingCar, setLoadingCar] = useState(false);
   const [clickedCoord, setClickedCoord] = useState<{ lat: number; lng: number } | null>(null);
+  const [fullscreen, setFullscreen] = useState(false);
   const dataRef = useRef<MapData>({
     geojson: initialData?.geojson ?? null,
     reference_lat: initialData?.reference_lat ?? null,
