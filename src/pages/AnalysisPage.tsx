@@ -300,7 +300,50 @@ export default function AnalysisPage() {
                 <CardContent className="p-5 space-y-4">
                   <FieldWithAiIndicator label="Alienação Fiduciária" value={getField('encumbrances.fiduciary_alienation')} onChange={v => updateField('encumbrances.fiduciary_alienation', v)} multiline />
                   <FieldWithAiIndicator label="Penhora" value={getField('encumbrances.seizure')} onChange={v => updateField('encumbrances.seizure', v)} multiline />
-                  <FieldWithAiIndicator label="Hipoteca" value={getField('encumbrances.mortgage')} onChange={v => updateField('encumbrances.mortgage', v)} multiline />
+
+                  {/* Hipotecas: M5/R8 retorna array com status. Renderiza tabela quando aplicável. */}
+                  {Array.isArray(formData?.encumbrances?.mortgage) ? (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <Label className="text-xs">Hipotecas</Label>
+                        <span title="Preenchido pela IA"><Bot className="w-3 h-3 text-primary" /></span>
+                        <span className="text-[10px] text-muted-foreground">({formData.encumbrances.mortgage.length})</span>
+                      </div>
+                      <div className="border border-border rounded-md overflow-hidden">
+                        <table className="w-full text-xs">
+                          <thead className="bg-muted/50">
+                            <tr>
+                              <th className="text-left p-2 font-medium">Ato origem</th>
+                              <th className="text-left p-2 font-medium">Status</th>
+                              <th className="text-left p-2 font-medium">Ato cancelamento</th>
+                              <th className="text-left p-2 font-medium">Descrição</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {formData.encumbrances.mortgage.map((m: any, idx: number) => (
+                              <tr key={idx} className="border-t border-border">
+                                <td className="p-2 font-mono">{m?.ato_origem ?? '—'}</td>
+                                <td className="p-2">
+                                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                    m?.status_hipoteca === 'ativa' ? 'bg-destructive/10 text-destructive border border-destructive/30' :
+                                    m?.status_hipoteca === 'cancelada' ? 'bg-success/10 text-success border border-success/30' :
+                                    'bg-warning/10 text-warning border border-warning/30'
+                                  }`}>
+                                    {m?.status_hipoteca ?? 'indefinida'}
+                                  </span>
+                                </td>
+                                <td className="p-2 font-mono text-muted-foreground">{m?.ato_cancelamento ?? '—'}</td>
+                                <td className="p-2">{m?.descricao ?? '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ) : (
+                    <FieldWithAiIndicator label="Hipoteca" value={getField('encumbrances.mortgage')} onChange={v => updateField('encumbrances.mortgage', v)} multiline />
+                  )}
+
                   <FieldWithAiIndicator label="Servidões" value={getField('encumbrances.easements')} onChange={v => updateField('encumbrances.easements', v)} multiline />
                   <FieldWithAiIndicator label="Reserva Legal Averbada (ARL)" value={getField('encumbrances.legal_reserve')} onChange={v => updateField('encumbrances.legal_reserve', v)} multiline />
                   <FieldWithAiIndicator label="APP (Área de Preservação Permanente)" value={getField('encumbrances.app')} onChange={v => updateField('encumbrances.app', v)} multiline />
