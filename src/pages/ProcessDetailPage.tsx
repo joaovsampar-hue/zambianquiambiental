@@ -295,6 +295,7 @@ export default function ProcessDetailPage() {
               onChange={(d) => saveGeometry.mutate(d)}
               height="600px"
               carNumber={process.car_number ?? undefined}
+              mainPropertyLabel={process.property?.denomination ?? process.title ?? undefined}
               registeredNeighbors={registeredSet}
               selectedNeighbors={selectedNeighbors}
               onNeighborToggle={(car) => {

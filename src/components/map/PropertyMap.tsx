@@ -84,12 +84,14 @@ interface Props {
   onNeighborToggle?: (car: string) => void;
   /** CARs já cadastrados como confrontantes — pintados em verde (e não permitem cadastro duplicado). */
   registeredNeighbors?: Set<string>;
+  /** Rótulo amigável para o tooltip do polígono principal (ex: denominação do imóvel). */
+  mainPropertyLabel?: string;
 }
 
 const BASE_LAYER_KEY = 'geodoc.map.baseLayer';
 
 const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
-  { initialData, onChange, height = '500px', readOnly, carNumber, onCarLoaded, onNeighborPick, onNeighborsDetected, selectedNeighbors, onNeighborToggle, registeredNeighbors },
+  { initialData, onChange, height = '500px', readOnly, carNumber, onCarLoaded, onNeighborPick, onNeighborsDetected, selectedNeighbors, onNeighborToggle, registeredNeighbors, mainPropertyLabel },
   ref,
 ) {
   const mapRef = useRef<HTMLDivElement>(null);
@@ -237,23 +239,32 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     // ===== OVERLAYS SICAR/SIGEF (escopados à UF do imóvel) =====
     // Antes carregávamos as 27 UFs em paralelo — virou tela travada por 5–10s
     // a cada toggle. Agora detectamos a UF a partir do número do CAR (ex: "SP")
-    // e instanciamos UMA única camada WMS por serviço. O LayerGroup vazio é
-    // recriado dinamicamente quando o CAR muda (ver `useEffect` mais abaixo).
-    const overlays: Record<string, L.Layer> = {};
+    // e instanciamos UMA única camada WMS por serviço.
+    //
+    // ITEM 5: ao abrir o mapa, somente a camada SICAR fica ativa por padrão.
+    // SIGEF e Confrontantes ficam disponíveis no controle de camadas mas começam
+    // DESLIGADOS — o usuário ativa quando precisar.
     const sicarGroup = L.layerGroup();
     const sigefGroup = L.layerGroup();
-    overlays['SICAR'] = sicarGroup;
-    overlays['SIGEF/INCRA'] = sigefGroup;
+    const neighborsGroup = L.layerGroup();
     sigefWmsByUFRef.current = new Map();
     sicarGroupRef.current = sicarGroup;
     sigefGroupRef.current = sigefGroup;
+
+    layerGroup.current = L.layerGroup().addTo(map); // imóvel principal — sempre visível
+    neighborsLayer.current = neighborsGroup;        // confrontantes — começa desligado (item 5)
+    sicarGroup.addTo(map);                          // SICAR — único overlay ativo por padrão
+
+    const overlays: Record<string, L.Layer> = {
+      'SICAR': sicarGroup,
+      'SIGEF/INCRA': sigefGroup,
+      'Confrontantes detectados': neighborsGroup,
+    };
 
     L.control
       .layers(bases, overlays, { position: 'topright', collapsed: true })
       .addTo(map);
 
-    layerGroup.current = L.layerGroup().addTo(map);
-    neighborsLayer.current = L.layerGroup().addTo(map);
     // Camada de popups dos cliques SIGEF — separada para limpar facilmente.
     sigefInfoLayer.current = L.layerGroup().addTo(map);
 
@@ -305,6 +316,8 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     sigefWmsByUFRef.current?.clear();
 
     // SICAR — uma WMS para a UF do imóvel.
+    // ITEM 6 — Camada 1: a WMS é renderizada pelo SFB (linhas laranja). Mantemos
+    // opacidade 0.85 para que as linhas fiquem nítidas sobre o satélite.
     if ((SICAR_UFS as readonly string[]).includes(uf)) {
       const wmsSicar = L.tileLayer.wms(SICAR_WMS, {
         layers: sicarLayerForUF(uf),
@@ -313,7 +326,7 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
         version: '1.3.0',
         uppercase: true,
         attribution: 'SICAR/SFB',
-        opacity: 0.55,
+        opacity: 0.85,
       } as L.WMSOptions);
       wmsSicar.on('tileerror', () => {
         const w = wmsSicar as L.TileLayer & { __notified?: boolean };
@@ -504,8 +517,20 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     lg.clearLayers();
 
     if (d.geojson) {
+      // ITEM 6 — Camada 2 (Imóvel do cliente): verde #1D9E75, sem preenchimento, stroke 2.5px.
       const gj = L.geoJSON(d.geojson, {
-        style: { color: 'hsl(152,55%,28%)', weight: 3, fillOpacity: 0.25, fillColor: 'hsl(152,55%,38%)' },
+        style: { color: '#1D9E75', weight: 2.5, opacity: 1, fillOpacity: 0 },
+      });
+      // Tooltip com denominação + área (item 6).
+      gj.eachLayer((layer: any) => {
+        const feat = layer.feature as GeoJSON.Feature | undefined;
+        const props = (feat?.properties ?? {}) as any;
+        const denom = mainPropertyLabel || props.denomination || props.cod_imovel || 'Imóvel do cliente';
+        const area = Number(props.area ?? 0);
+        const tip = area > 0
+          ? `<strong>${denom}</strong><br/>${area.toFixed(2)} ha`
+          : `<strong>${denom}</strong>`;
+        layer.bindTooltip(tip, { sticky: true, direction: 'top' });
       });
       gj.addTo(lg);
       try {
@@ -535,17 +560,18 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
   //   - VERDE  → já cadastrado como confrontante (precedência máxima)
   //   - AZUL FORTE → selecionado no painel pra cadastro em lote
   //   - AZUL CLARO → detectado mas não selecionado
+  // ITEM 6 — Camada 3 (Confrontantes): azul #378ADD com fill opacity 0.25,
+  // stroke #185FA5 1.5px com opacidade 0.9. Já cadastrados ganham destaque verde.
   const styleForNeighbor = (car: string): L.PathOptions => {
     const sanitized = sanitizeCar(car);
     const isRegistered = registeredNeighborsRef.current.has(sanitized);
     if (isRegistered) {
-      // Cinza neutro pra distinguir do verde do imóvel principal (cliente).
-      return { color: 'hsl(0,0%,40%)', weight: 2, fillColor: 'hsl(0,0%,55%)', fillOpacity: 0.35 };
+      return { color: '#155E48', weight: 2, fillColor: '#1D9E75', fillOpacity: 0.35, opacity: 1 };
     }
     const isSelected = selectedNeighborsRef.current.has(sanitized);
     return isSelected
-      ? { color: '#1D4ED8', weight: 2.5, fillColor: '#3B82F6', fillOpacity: 0.45 }
-      : { color: '#3B82F6', weight: 1, fillColor: '#85B7EB', fillOpacity: 0.15 };
+      ? { color: '#185FA5', weight: 2.5, fillColor: '#378ADD', fillOpacity: 0.45, opacity: 1 }
+      : { color: '#185FA5', weight: 1.5, fillColor: '#378ADD', fillOpacity: 0.25, opacity: 0.9 };
   };
 
   const renderNeighbors = (fc: GeoJSON.FeatureCollection, mainCar: string) => {
