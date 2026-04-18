@@ -123,7 +123,8 @@ export default function NewProcessPage() {
     onError: (e: any) => toast({ title: 'Erro', description: e.message, variant: 'destructive' }),
   });
 
-  const handleLocateCAR = () => {
+  const [locatingCar, setLocatingCar] = useState(false);
+  const handleLocateCAR = async () => {
     if (!carClean) {
       toast({ title: 'Digite o número do CAR primeiro', variant: 'destructive' });
       return;
@@ -132,10 +133,19 @@ export default function NewProcessPage() {
       toast({ title: 'CAR inválido', description: 'Verifique o formato', variant: 'destructive' });
       return;
     }
+    if (!mapHandleRef.current) return;
+    // Centraliza na UF imediatamente (feedback rápido) e dispara busca WFS no SICAR.
     const uf = carUF(carClean);
-    if (uf && mapHandleRef.current) {
-      mapHandleRef.current.flyToUF(uf);
-      toast({ title: `Mapa centralizado em ${uf}`, description: 'Ative a camada CAR para ver os polígonos da região.' });
+    if (uf) mapHandleRef.current.flyToUF(uf);
+    setLocatingCar(true);
+    try {
+      const ok = await mapHandleRef.current.loadCarPolygon(carClean);
+      if (!ok) {
+        // Toast de erro já é exibido pelo PropertyMap.loadCar; aqui só logamos contexto.
+        return;
+      }
+    } finally {
+      setLocatingCar(false);
     }
   };
 
