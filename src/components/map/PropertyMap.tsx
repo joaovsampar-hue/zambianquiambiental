@@ -269,6 +269,8 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
 
     map.on('click', async (e: L.LeafletMouseEvent) => {
       setClickedCoord({ lat: e.latlng.lat, lng: e.latlng.lng });
+      // Identifica em paralelo no SICAR (CAR) e nas UFs SIGEF ativas. Não bloqueia.
+      void identifySigefAtPoint(e.latlng.lat, e.latlng.lng);
       await identifyRef.current(e.latlng.lat, e.latlng.lng);
     });
 
