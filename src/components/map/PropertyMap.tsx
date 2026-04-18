@@ -303,15 +303,31 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
       style: { color: '#3B82F6', weight: 1, fillColor: '#85B7EB', fillOpacity: 0.15 },
       onEachFeature: (feat, layer) => {
         const p = feat.properties as any;
-        if (p?.cod_imovel && p.cod_imovel !== mainCar) {
-          layer.bindPopup(
-            `<div class="text-xs">
-              <div class="font-semibold mb-1">CAR vizinho</div>
-              <div class="font-mono break-all">${p.cod_imovel}</div>
-              <div class="mt-1">Município: ${p.municipio ?? '—'}</div>
-              <div>Área: ${p.area ? Number(p.area).toFixed(2) + ' ha' : '—'}</div>
-            </div>`,
-          );
+        if (!p?.cod_imovel || p.cod_imovel === mainCar) return;
+        const car = String(p.cod_imovel);
+        const area = Number(p.area ?? 0);
+        const municipio = String(p.municipio ?? '');
+        const uf = String(p.uf ?? '');
+        const btnId = `neighbor-add-${car.replace(/[^A-Za-z0-9]/g, '')}`;
+        const showBtn = !!onNeighborPick;
+        const html = `
+          <div class="text-xs space-y-1.5" style="min-width:240px">
+            <div class="font-semibold">Imóvel vizinho (SICAR)</div>
+            <div><span class="text-muted-foreground">CAR:</span> <span class="font-mono break-all">${car}</span></div>
+            <div><span class="text-muted-foreground">Área total:</span> ${area.toFixed(2)} ha</div>
+            <div><span class="text-muted-foreground">Município:</span> ${municipio}${uf ? '/' + uf : ''}</div>
+            ${showBtn ? `<div class="pt-1"><button id="${btnId}" class="px-2 py-1 rounded bg-secondary text-secondary-foreground text-xs border border-border">+ Listar como confrontante</button></div>` : ''}
+          </div>`;
+        layer.bindPopup(html);
+        if (showBtn) {
+          layer.on('popupopen', () => {
+            setTimeout(() => {
+              document.getElementById(btnId)?.addEventListener('click', () => {
+                (layer as any).closePopup?.();
+                onNeighborPick?.({ car, area, municipio, uf });
+              });
+            }, 0);
+          });
         }
       },
     }).addTo(lg);
