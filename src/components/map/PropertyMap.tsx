@@ -426,17 +426,42 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
   };
 
   return (
-    <div className="space-y-3">
+    <div
+      className={
+        fullscreen
+          ? 'fixed inset-0 z-[1000] bg-background p-4 space-y-3 overflow-auto'
+          : 'space-y-3'
+      }
+    >
       <div className="flex items-center justify-between gap-2 flex-wrap">
         {sourceBadge()}
-        {clickedCoord && (
-          <span className="text-xs font-mono text-muted-foreground">
-            {clickedCoord.lat.toFixed(6)}, {clickedCoord.lng.toFixed(6)}
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {clickedCoord && (
+            <span className="text-xs font-mono text-muted-foreground">
+              {clickedCoord.lat.toFixed(6)}, {clickedCoord.lng.toFixed(6)}
+            </span>
+          )}
+        </div>
       </div>
 
-      <div ref={mapRef} style={{ height, width: '100%' }} className="rounded-lg border border-border z-0" />
+      <div className="relative">
+        <div
+          ref={mapRef}
+          style={{ height: fullscreen ? 'calc(100vh - 180px)' : height, width: '100%' }}
+          className="rounded-lg border border-border z-0"
+        />
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          onClick={() => setFullscreen(f => !f)}
+          className="absolute top-2 left-2 z-[400] shadow-md"
+          title={fullscreen ? 'Sair da tela cheia (Esc)' : 'Expandir mapa'}
+        >
+          {fullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+          <span className="ml-1.5 hidden sm:inline">{fullscreen ? 'Reduzir' : 'Expandir'}</span>
+        </Button>
+      </div>
 
       {!readOnly && (
         <>
