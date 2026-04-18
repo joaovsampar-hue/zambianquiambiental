@@ -453,6 +453,7 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
       onCarLoaded?.(result.feature.cod_imovel);
 
       // Buscar confrontantes diretos (que tocam a fronteira do imóvel) — não usa raio.
+      setNeighborStatus('loading');
       try {
         const neighbors = await fetchTouchingNeighbors(
           result.feature.uf as SicarUF,
@@ -461,22 +462,23 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
         );
         if (neighbors) {
           renderNeighbors(neighbors, result.feature.cod_imovel);
-          // Notifica o consumidor com a lista enxuta dos confrontantes detectados.
-          if (onNeighborsDetected) {
-            const list = (neighbors.features ?? [])
-              .map(f => f.properties as any)
-              .filter(p => p?.cod_imovel && p.cod_imovel !== result.feature.cod_imovel)
-              .map(p => ({
-                car: String(p.cod_imovel),
-                area: Number(p.area ?? 0),
-                municipio: String(p.municipio ?? ''),
-                uf: String(p.uf ?? result.feature.uf),
-              }));
-            onNeighborsDetected(list);
-          }
+          const list = (neighbors.features ?? [])
+            .map(f => f.properties as any)
+            .filter(p => p?.cod_imovel && p.cod_imovel !== result.feature.cod_imovel)
+            .map(p => ({
+              car: String(p.cod_imovel),
+              area: Number(p.area ?? 0),
+              municipio: String(p.municipio ?? ''),
+              uf: String(p.uf ?? result.feature.uf),
+            }));
+          setNeighborCount(list.length);
+          setNeighborStatus(list.length > 0 ? 'done' : 'empty');
+          onNeighborsDetected?.(list);
+        } else {
+          setNeighborStatus('error');
         }
       } catch {
-        /* ignore neighbor errors */
+        setNeighborStatus('error');
       }
 
       toast({
