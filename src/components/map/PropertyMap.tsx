@@ -383,7 +383,7 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
         HEIGHT: '3',
         X: '1',
         Y: '1',
-        INFO_FORMAT: 'text/html',
+        INFO_FORMAT: SIGEF_INFO_FORMAT,
         FEATURE_COUNT: '1',
       });
       try {
