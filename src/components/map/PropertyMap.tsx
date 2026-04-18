@@ -242,7 +242,80 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
       mapInstance.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+
+  // ===== Escopa SICAR/SIGEF à UF do imóvel =====
+  // Detecta a UF do CAR (ex: "SP-3500402-...") e instancia uma única WMS por
+  // serviço dentro dos LayerGroups vazios criados na init. Sem CAR, mostra
+  // SP por padrão (cobre Mariápolis e a maior parte do uso).
+  useEffect(() => {
+    const map = mapInstance.current;
+    const sicarGroup = sicarGroupRef.current;
+    const sigefGroup = sigefGroupRef.current;
+    if (!map || !sicarGroup || !sigefGroup) return;
+    const uf = (carNumber && parseCarUF(carNumber)) || 'SP';
+    if (currentUfRef.current === uf) return;
+    currentUfRef.current = uf;
+
+    // Limpa camadas anteriores e mapeamentos.
+    sicarGroup.clearLayers();
+    sigefGroup.clearLayers();
+    sigefWmsByUFRef.current?.clear();
+
+    // SICAR — uma WMS para a UF do imóvel.
+    if ((SICAR_UFS as readonly string[]).includes(uf)) {
+      const wmsSicar = L.tileLayer.wms(SICAR_WMS, {
+        layers: sicarLayerForUF(uf),
+        format: 'image/png',
+        transparent: true,
+        version: '1.3.0',
+        uppercase: true,
+        attribution: 'SICAR/SFB',
+        opacity: 0.55,
+      } as L.WMSOptions);
+      wmsSicar.on('tileerror', () => {
+        const w = wmsSicar as L.TileLayer & { __notified?: boolean };
+        if (w.__notified) return;
+        w.__notified = true;
+        toast({
+          title: 'SICAR indisponível',
+          description: 'O servidor do SFB pode estar fora do ar. Tente novamente em alguns minutos.',
+          variant: 'destructive',
+        });
+      });
+      sicarGroup.addLayer(wmsSicar);
+    }
+
+    // SIGEF — idem.
+    if ((SIGEF_UFS as readonly string[]).includes(uf)) {
+      const wmsSigef = L.tileLayer.wms(SIGEF_PROXY_WMS, {
+        layers: sigefLayerForUF(uf),
+        format: 'image/png',
+        transparent: true,
+        version: '1.1.1',
+        uppercase: true,
+        attribution: 'SIGEF/INCRA',
+        opacity: 0.65,
+      } as L.WMSOptions);
+      wmsSigef.on('tileerror', () => {
+        const w = wmsSigef as L.TileLayer & { __notified?: boolean };
+        if (w.__notified) return;
+        w.__notified = true;
+        toast({
+          title: 'SIGEF/INCRA indisponível',
+          description: 'O acervo fundiário do INCRA está fora do ar. Tente em alguns minutos.',
+          variant: 'destructive',
+        });
+      });
+      sigefWmsByUFRef.current?.set(uf, wmsSigef);
+      sigefGroup.addLayer(wmsSigef);
+      // Se o overlay SIGEF já estiver visível, atualiza o set de UFs ativas.
+      if (map.hasLayer(sigefGroup)) {
+        sigefActiveUFs.current.clear();
+        sigefActiveUFs.current.add(uf as SigefUF);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [carNumber]);
 
   // Quando há geometria pré-carregada (vinda do banco) + número CAR, busca os
   // confrontantes diretos automaticamente. Sem isso, o usuário só veria os
