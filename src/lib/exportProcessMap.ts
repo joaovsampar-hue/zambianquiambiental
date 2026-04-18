@@ -442,7 +442,7 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
   pdf.setDrawColor(0, 0, 0).setLineWidth(0.4);
   pdf.rect(MARGIN, MARGIN, MAP_W, MAP_H);
 
-  // Área (canto inferior esquerdo)
+  // Área do imóvel (canto inferior esquerdo) — info útil mesmo sem escala.
   if (areaHa != null) {
     pdf.setFillColor(255, 255, 255);
     pdf.setDrawColor(180, 180, 180);
