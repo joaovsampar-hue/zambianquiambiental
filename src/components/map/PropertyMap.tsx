@@ -437,7 +437,7 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [carNumber]);
 
-
+  const handleApplyCoordinates = () => {
     try {
       const points = coords
         .split(/\n|;/)
