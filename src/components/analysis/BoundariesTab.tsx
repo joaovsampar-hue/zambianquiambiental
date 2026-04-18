@@ -143,10 +143,20 @@ export default function BoundariesTab({ formData, updateField, getField }: Bound
 
       const extracted = funcData.extracted_data;
       const ident = extracted?.identification ?? {};
-      const owners = (extracted?.owners ?? []).map((o: any) => ({
+      const owners: NeighborOwner[] = (extracted?.owners ?? []).map((o: any) => ({
         name: o.name || '',
         cpf_cnpj: o.cpf_cnpj || '',
+        rg: o.rg || '',
+        marital_status: o.marital_status || '',
+        marriage_regime: o.marriage_regime || '',
+        spouse: o.spouse || undefined,
+        fonte_dados_documentais: o.fonte_dados_documentais,
+        verificar_titularidade: o.verificar_titularidade,
       }));
+      // Hipotecas M5/R8 podem vir como array de objetos
+      const mortgages: NeighborMortgage[] = Array.isArray(extracted?.encumbrances?.mortgage)
+        ? extracted.encumbrances.mortgage
+        : [];
 
       // Re-read neighbors to avoid stale state
       const freshNeighbors = [...neighbors];
@@ -161,13 +171,18 @@ export default function BoundariesTab({ formData, updateField, getField }: Bound
       n.state = ident.state || n.state;
       n.total_area = ident.total_area || n.total_area;
       n.registration_number = ident.registration_number || n.registration_number;
-      // Merge owners - add new ones
-      const existingCpfs = new Set(n.owners.map(o => o.cpf_cnpj));
+      n.ccir = ident.ccir || n.ccir;
+      n.registry_office = ident.registry_office || n.registry_office;
+      // Merge owners — chave por CPF, fallback nome
+      const existingKeys = new Set(n.owners.map(o => o.cpf_cnpj || o.name));
       for (const owner of owners) {
-        if (!existingCpfs.has(owner.cpf_cnpj)) {
+        const key = owner.cpf_cnpj || owner.name;
+        if (!existingKeys.has(key)) {
           n.owners.push(owner);
         }
       }
+      // Merge hipotecas — substitui (matrícula mais recente é fonte da verdade)
+      if (mortgages.length > 0) n.mortgages = mortgages;
       n.status = 'completed';
       freshNeighbors[index] = n;
       updateNeighbors(freshNeighbors);
