@@ -132,9 +132,10 @@ export default function ProcessDetailPage() {
         <TabsContent value="map">
           <Card><CardContent className="p-4">
             <PropertyMap
-              initialData={geometry ?? undefined}
+              initialData={geometry ? (geometry as any) : undefined}
               onChange={(d) => saveGeometry.mutate(d)}
               height="600px"
+              carNumber={process.car_number ?? undefined}
             />
           </CardContent></Card>
         </TabsContent>
