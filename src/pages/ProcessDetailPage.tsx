@@ -21,6 +21,7 @@ export default function ProcessDetailPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
+  const [detected, setDetected] = useState<DetectedNeighbor[]>([]);
 
   const { data: process, isLoading } = useQuery({
     queryKey: ['process', id],
