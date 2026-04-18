@@ -242,6 +242,7 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
       mapInstance.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ===== Escopa SICAR/SIGEF à UF do imóvel =====
   // Detecta a UF do CAR (ex: "SP-3500402-...") e instancia uma única WMS por
