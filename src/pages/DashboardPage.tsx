@@ -143,13 +143,21 @@ export default function DashboardPage() {
               <Link key={p.id} to={`/processes/${p.id}`}>
                 <Card className={`hover:border-primary/40 transition-colors cursor-pointer border-l-4 ${urgency}`}>
                   <CardContent className="p-4 space-y-2">
-                    <div className="flex items-start justify-between">
+                    <div className="flex items-start justify-between gap-2">
                       <span className="font-mono text-xs px-2 py-0.5 rounded bg-primary/10 text-primary">
                         {p.process_number}
                       </span>
-                      <span className="text-xs text-muted-foreground">
-                        {days === 0 ? 'Hoje' : `${days}d sem atualização`}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">
+                          {days === 0 ? 'Hoje' : `${days}d sem atualização`}
+                        </span>
+                        <DeleteButton
+                          iconOnly
+                          title="Excluir processo?"
+                          description={`Processo ${p.process_number} e todos os confrontantes, análises e geometria vinculados serão removidos.`}
+                          onConfirm={async () => { await deleteProcess.mutateAsync(p.id); }}
+                        />
+                      </div>
                     </div>
                     <div>
                       <p className="font-medium text-sm leading-tight">
