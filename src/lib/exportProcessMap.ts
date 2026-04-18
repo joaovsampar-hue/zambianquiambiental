@@ -220,34 +220,20 @@ function makeProjector(
 type Projector = ReturnType<typeof makeProjector>;
 
 // ===== Recorte de feições ao viewport =====
-// Usa turf.bboxClip para cortar polígonos que extrapolam o mapa visível.
-// Isso evita o bug "faixas diagonais" — polígonos vizinhos enormes que ocupam
-// dezenas de km e atravessam o viewport.
-function clipToViewport(feature: GeoJSON.Feature, map: L.Map): GeoJSON.Feature | null {
+// Em vez de cortar geometrias com turf (que falhava em multipolígonos grandes),
+// usamos o clipping path nativo do PDF: tudo desenhado fora do retângulo do
+// mapa simplesmente não aparece. Mais rápido, exato e elimina o bug das
+// "faixas diagonais".
+function withMapClip(pdf: jsPDF, x: number, y: number, w: number, h: number, draw: () => void) {
+  const anyPdf = pdf as any;
+  if (typeof anyPdf.saveGraphicsState === 'function') anyPdf.saveGraphicsState();
+  pdf.rect(x, y, w, h);
+  if (typeof anyPdf.clip === 'function') anyPdf.clip();
+  if (typeof anyPdf.discardPath === 'function') anyPdf.discardPath();
   try {
-    const bounds = map.getBounds();
-    const padded = bounds.pad(0.05);
-    const bbox: [number, number, number, number] = [
-      padded.getWest(), padded.getSouth(), padded.getEast(), padded.getNorth(),
-    ];
-    const clipped = bboxClip(feature as any, bbox);
-    const g = clipped.geometry as GeoJSON.Geometry | null;
-    if (!g) return null;
-    if (g.type === 'Polygon') {
-      const rings = (g.coordinates as number[][][]).filter(r => r && r.length >= 4);
-      if (rings.length === 0) return null;
-      return { type: 'Feature', geometry: { type: 'Polygon', coordinates: rings }, properties: feature.properties ?? {} };
-    }
-    if (g.type === 'MultiPolygon') {
-      const polys = (g.coordinates as number[][][][])
-        .map(poly => poly.filter(r => r && r.length >= 4))
-        .filter(poly => poly.length > 0);
-      if (polys.length === 0) return null;
-      return { type: 'Feature', geometry: { type: 'MultiPolygon', coordinates: polys }, properties: feature.properties ?? {} };
-    }
-    return null;
-  } catch {
-    return null;
+    draw();
+  } finally {
+    if (typeof anyPdf.restoreGraphicsState === 'function') anyPdf.restoreGraphicsState();
   }
 }
 
