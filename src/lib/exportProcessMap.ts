@@ -328,8 +328,23 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
   controlsToHide.forEach(el => { el.style.display = 'none'; });
   setOverlayTilesVisible?.(false);
 
+  // Centraliza no imóvel principal antes de capturar (foco no cliente).
+  let prevView: { center: L.LatLng; zoom: number } | null = null;
+  if (mainFeature?.geometry) {
+    try {
+      prevView = { center: leafletMap.getCenter(), zoom: leafletMap.getZoom() };
+      const tmpLayer = L.geoJSON(mainFeature as any);
+      const b = tmpLayer.getBounds();
+      if (b.isValid()) {
+        leafletMap.fitBounds(b, { padding: [40, 40], animate: false });
+      }
+    } catch (err) {
+      console.warn('[exportProcessMap] fitBounds falhou:', err);
+    }
+  }
+
   await new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r())));
-  await new Promise(r => setTimeout(r, 250));
+  await new Promise(r => setTimeout(r, 350));
 
   let basemap: BasemapCaptureResult = { dataUrl: null, width: leafletEl.clientWidth, height: leafletEl.clientHeight };
   try {
