@@ -188,69 +188,19 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
       }
     });
 
-    // ===== OVERLAY SICAR (todas as UFs num único toggle) =====
-    // Antes tínhamos um item por UF na legenda — virou ruído visual com 27 entradas.
-    // Agora é um único `LayerGroup` que agrega WMS de todas as UFs; quando o usuário
-    // ativa "SICAR (todas as UFs)", todas as camadas entram juntas. O servidor só
-    // entrega tiles para o bbox visível, então não há custo extra de carregar todas.
+    // ===== OVERLAYS SICAR/SIGEF (escopados à UF do imóvel) =====
+    // Antes carregávamos as 27 UFs em paralelo — virou tela travada por 5–10s
+    // a cada toggle. Agora detectamos a UF a partir do número do CAR (ex: "SP")
+    // e instanciamos UMA única camada WMS por serviço. O LayerGroup vazio é
+    // recriado dinamicamente quando o CAR muda (ver `useEffect` mais abaixo).
     const overlays: Record<string, L.Layer> = {};
-    const sicarSubLayers: L.TileLayer.WMS[] = [];
-    SICAR_UFS.forEach((uf) => {
-      const wms = L.tileLayer.wms(SICAR_WMS, {
-        layers: sicarLayerForUF(uf),
-        format: 'image/png',
-        transparent: true,
-        version: '1.3.0',
-        uppercase: true,
-        attribution: 'SICAR/SFB',
-        opacity: 0.55,
-      } as L.WMSOptions);
-      wms.on('tileerror', () => {
-        const w = wms as L.TileLayer & { __notified?: boolean };
-        if (w.__notified) return;
-        w.__notified = true;
-        toast({
-          title: 'Camadas SICAR indisponíveis',
-          description: 'O servidor do SFB pode estar fora do ar. Tente novamente em alguns minutos.',
-          variant: 'destructive',
-        });
-      });
-      sicarSubLayers.push(wms);
-    });
-    const sicarGroup = L.layerGroup(sicarSubLayers);
-    overlays['SICAR (todas as UFs)'] = sicarGroup;
-
-    // ===== OVERLAY SIGEF (todas as UFs num único toggle) =====
-    // Mesma lógica do SICAR — um único item na legenda agrega todas as 27 UFs do
-    // acervo fundiário do INCRA. Mantemos `sigefWmsByUFRef` para casos pontuais.
-    const sigefWmsByUF = new Map<string, L.TileLayer.WMS>();
-    const sigefSubLayers: L.TileLayer.WMS[] = [];
-    SIGEF_UFS.forEach((uf) => {
-      const wms = L.tileLayer.wms(SIGEF_PROXY_WMS, {
-        layers: sigefLayerForUF(uf),
-        format: 'image/png',
-        transparent: true,
-        version: '1.1.1',
-        uppercase: true,
-        attribution: 'SIGEF/INCRA',
-        opacity: 0.65,
-      } as L.WMSOptions);
-      wms.on('tileerror', () => {
-        const w = wms as L.TileLayer & { __notified?: boolean };
-        if (w.__notified) return;
-        w.__notified = true;
-        toast({
-          title: 'SIGEF/INCRA indisponível',
-          description: 'O acervo fundiário do INCRA está fora do ar. Tente em alguns minutos.',
-          variant: 'destructive',
-        });
-      });
-      sigefWmsByUF.set(uf, wms);
-      sigefSubLayers.push(wms);
-    });
-    const sigefGroup = L.layerGroup(sigefSubLayers);
-    overlays['SIGEF (todas as UFs)'] = sigefGroup;
-    sigefWmsByUFRef.current = sigefWmsByUF;
+    const sicarGroup = L.layerGroup();
+    const sigefGroup = L.layerGroup();
+    overlays['SICAR'] = sicarGroup;
+    overlays['SIGEF/INCRA'] = sigefGroup;
+    sigefWmsByUFRef.current = new Map();
+    sicarGroupRef.current = sicarGroup;
+    sigefGroupRef.current = sigefGroup;
 
     L.control
       .layers(bases, overlays, { position: 'topright', collapsed: true })
