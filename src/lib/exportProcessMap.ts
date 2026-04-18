@@ -228,9 +228,15 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
     companyLogoUrl, fileName = 'mapa-processo', areaHa,
   } = opts;
 
-  const leafletEl = (mapContainer.querySelector('.leaflet-container') as HTMLElement) ?? mapContainer;
+  console.log('[exportProcessMap] start', {
+    hasMain: !!mainFeature,
+    neighborsCount: neighborsFc?.features?.length ?? 0,
+    title,
+  });
 
-  // Esconde controles + camadas WMS de hachura.
+  const leafletEl = (mapContainer.querySelector('.leaflet-container') as HTMLElement) ?? mapContainer;
+  console.log('[exportProcessMap] leafletEl size', leafletEl.getBoundingClientRect());
+
   const controlsToHide = leafletEl.querySelectorAll<HTMLElement>(
     '.leaflet-control-zoom, .leaflet-control-layers, .leaflet-control-attribution',
   );
@@ -238,14 +244,19 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
   controlsToHide.forEach(el => { el.style.display = 'none'; });
   setOverlayTilesVisible?.(false);
 
-  // Aguarda 2x requestAnimationFrame + delay extra para o navegador fazer
-  // reflow e o Leaflet aplicar visibility:hidden nas tiles WMS antes do snapshot.
   await new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r())));
   await new Promise(r => setTimeout(r, 250));
 
   let pngDataUrl: string;
   try {
+    console.log('[exportProcessMap] capturing PNG...');
     pngDataUrl = await toPng(leafletEl, { pixelRatio: 2, cacheBust: true, skipFonts: false });
+    console.log('[exportProcessMap] PNG captured, length:', pngDataUrl.length);
+  } catch (err) {
+    console.error('[exportProcessMap] toPng failed:', err);
+    controlsToHide.forEach((el, i) => { el.style.display = prevDisplays[i]; });
+    setOverlayTilesVisible?.(true);
+    throw new Error(`Falha capturando o mapa: ${(err as Error).message}`);
   } finally {
     controlsToHide.forEach((el, i) => { el.style.display = prevDisplays[i]; });
     setOverlayTilesVisible?.(true);
@@ -290,9 +301,22 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
     cropSrcY = (domRect.height - cropSrcH) / 2;
   }
 
-  // Faz o crop do PNG via canvas, em px reais (pixelRatio=2 do toPng).
-  const croppedPng = await cropPngToAspect(pngDataUrl, cropSrcX, cropSrcY, cropSrcW, cropSrcH, 2);
-  pdf.addImage(croppedPng, 'PNG', MARGIN, MARGIN, MAP_W, MAP_H, undefined, 'FAST');
+  // Faz o crop do PNG via canvas. Se falhar (canvas tainted, etc.), faz fallback
+  // pra imagem original esticada — melhor distorcida do que sem mapa.
+  let imgToAdd = pngDataUrl;
+  try {
+    console.log('[exportProcessMap] cropping PNG', { cropSrcX, cropSrcY, cropSrcW, cropSrcH });
+    imgToAdd = await cropPngToAspect(pngDataUrl, cropSrcX, cropSrcY, cropSrcW, cropSrcH, 2);
+    console.log('[exportProcessMap] crop OK, length:', imgToAdd.length);
+  } catch (err) {
+    console.error('[exportProcessMap] crop failed, using original:', err);
+  }
+  try {
+    pdf.addImage(imgToAdd, 'PNG', MARGIN, MARGIN, MAP_W, MAP_H, undefined, 'FAST');
+  } catch (err) {
+    console.error('[exportProcessMap] addImage failed:', err);
+    throw new Error(`Falha inserindo imagem no PDF: ${(err as Error).message}`);
+  }
 
   const cropMeta = {
     srcX: cropSrcX, srcY: cropSrcY, srcW: cropSrcW, srcH: cropSrcH,
