@@ -833,8 +833,11 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
                 </Badge>
               )}
               {sigefStatus === 'empty' && (
-                <Badge className="bg-muted text-muted-foreground border-border shadow-md">
-                  SIGEF: nenhuma parcela na área
+                <Badge
+                  className="bg-muted text-muted-foreground border-border shadow-md cursor-help"
+                  title="A camada pública do INCRA no ArcGIS Online cobre apenas parcelas dentro de buffers de 5 km ao redor de áreas indígenas, quilombolas e assentamentos. Regiões agrícolas comuns ficam fora desta cobertura. O dataset SIGEF nacional completo só está disponível mediante login gov.br em certificacao.incra.gov.br."
+                >
+                  SIGEF: sem parcelas na cobertura pública (?)
                 </Badge>
               )}
               {sigefStatus === 'zoomout' && (
