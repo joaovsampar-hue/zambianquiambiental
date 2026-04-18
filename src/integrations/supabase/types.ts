@@ -107,6 +107,36 @@ export type Database = {
         }
         Relationships: []
       }
+      company_settings: {
+        Row: {
+          created_at: string
+          default_responsible_user_id: string | null
+          id: string
+          logo_path: string | null
+          name: string
+          tagline: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          default_responsible_user_id?: string | null
+          id?: string
+          logo_path?: string | null
+          name?: string
+          tagline?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          default_responsible_user_id?: string | null
+          id?: string
+          logo_path?: string | null
+          name?: string
+          tagline?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       process_geometry: {
         Row: {
           coordinates_text: string | null
@@ -352,6 +382,11 @@ export type Database = {
           email: string
           full_name: string
           id: string
+          is_responsible_technician: boolean
+          registry_number: string | null
+          registry_type: string | null
+          role_title: string | null
+          signature_path: string | null
           updated_at: string
           user_id: string
         }
@@ -360,6 +395,11 @@ export type Database = {
           email?: string
           full_name?: string
           id?: string
+          is_responsible_technician?: boolean
+          registry_number?: string | null
+          registry_type?: string | null
+          role_title?: string | null
+          signature_path?: string | null
           updated_at?: string
           user_id: string
         }
@@ -368,6 +408,11 @@ export type Database = {
           email?: string
           full_name?: string
           id?: string
+          is_responsible_technician?: boolean
+          registry_number?: string | null
+          registry_type?: string | null
+          role_title?: string | null
+          signature_path?: string | null
           updated_at?: string
           user_id?: string
         }
