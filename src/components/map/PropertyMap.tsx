@@ -85,11 +85,15 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
   const mapInstance = useRef<L.Map | null>(null);
   const layerGroup = useRef<L.LayerGroup | null>(null);
   const neighborsLayer = useRef<L.LayerGroup | null>(null);
-  // Camadas SIGEF — uma WMS por UF (servidas pelo proxy sigef-incra-proxy).
-  // O usuário ativa/desativa via controle de camadas; rastreamos quais UFs
-  // estão ligadas para decidir se o clique deve consultar GetFeatureInfo.
+  // Camadas SICAR/SIGEF — uma única WMS por serviço, escopada à UF do imóvel
+  // (detectada pelo número do CAR). Antes carregávamos as 27 UFs em paralelo,
+  // o que travava o mapa por vários segundos a cada toggle.
   const sigefWmsByUFRef = useRef<Map<string, L.TileLayer.WMS> | null>(null);
   const sigefActiveUFs = useRef<Set<SigefUF>>(new Set());
+  const sicarGroupRef = useRef<L.LayerGroup | null>(null);
+  const sigefGroupRef = useRef<L.LayerGroup | null>(null);
+  // UF atualmente carregada nos overlays (evita reinstanciar quando não muda).
+  const currentUfRef = useRef<string | null>(null);
   const sigefInfoLayer = useRef<L.LayerGroup | null>(null);
   const sigefIdentifyToken = useRef<number>(0);
   const [coords, setCoords] = useState(initialData?.coordinates_text ?? '');
