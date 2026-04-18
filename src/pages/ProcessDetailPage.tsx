@@ -207,6 +207,7 @@ export default function ProcessDetailPage() {
               onChange={(d) => saveGeometry.mutate(d)}
               height="600px"
               carNumber={process.car_number ?? undefined}
+              registeredNeighbors={registeredSet}
               selectedNeighbors={selectedNeighbors}
               onNeighborToggle={(car) => {
                 const sanitized = sanitizeCar(car);

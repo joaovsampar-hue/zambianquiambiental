@@ -66,12 +66,14 @@ interface Props {
   selectedNeighbors?: Set<string>;
   /** Alterna a marcação de um CAR no painel ao clicar no botão "Marcar/Desmarcar do painel" do popup. */
   onNeighborToggle?: (car: string) => void;
+  /** CARs já cadastrados como confrontantes — pintados em verde (e não permitem cadastro duplicado). */
+  registeredNeighbors?: Set<string>;
 }
 
 const BASE_LAYER_KEY = 'geodoc.map.baseLayer';
 
 const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
-  { initialData, onChange, height = '500px', readOnly, carNumber, onCarLoaded, onNeighborPick, onNeighborsDetected, selectedNeighbors, onNeighborToggle },
+  { initialData, onChange, height = '500px', readOnly, carNumber, onCarLoaded, onNeighborPick, onNeighborsDetected, selectedNeighbors, onNeighborToggle, registeredNeighbors },
   ref,
 ) {
   const mapRef = useRef<HTMLDivElement>(null);
@@ -84,6 +86,9 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
   const [clickedCoord, setClickedCoord] = useState<{ lat: number; lng: number } | null>(null);
   const [identifying, setIdentifying] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+  // Status da consulta de confrontantes ao SICAR — alimenta o badge de status.
+  const [neighborStatus, setNeighborStatus] = useState<'idle' | 'loading' | 'done' | 'empty' | 'error'>('idle');
+  const [neighborCount, setNeighborCount] = useState(0);
   const dataRef = useRef<MapData>({
     geojson: initialData?.geojson ?? null,
     reference_lat: initialData?.reference_lat ?? null,
@@ -104,8 +109,10 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
   // usadas dentro de handlers do popup que são registrados uma única vez.
   const selectedNeighborsRef = useRef<Set<string>>(selectedNeighbors ?? new Set());
   const onNeighborToggleRef = useRef<typeof onNeighborToggle>(onNeighborToggle);
+  const registeredNeighborsRef = useRef<Set<string>>(registeredNeighbors ?? new Set());
   selectedNeighborsRef.current = selectedNeighbors ?? new Set();
   onNeighborToggleRef.current = onNeighborToggle;
+  registeredNeighborsRef.current = registeredNeighbors ?? new Set();
 
   useImperativeHandle(ref, () => ({
     flyToUF: (uf: string) => {
@@ -231,24 +238,28 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     if (loadedCarsRef.current.has(mainCar)) return;
     loadedCarsRef.current.add(mainCar);
     (async () => {
+      setNeighborStatus('loading');
       try {
         const neighbors = await fetchTouchingNeighbors(uf, geom, mainCar);
-        if (!neighbors) return;
-        renderNeighbors(neighbors, mainCar);
-        if (onNeighborsDetected) {
-          const list = (neighbors.features ?? [])
-            .map(f => f.properties as any)
-            .filter(p => p?.cod_imovel && p.cod_imovel !== mainCar)
-            .map(p => ({
-              car: String(p.cod_imovel),
-              area: Number(p.area ?? 0),
-              municipio: String(p.municipio ?? ''),
-              uf: String(p.uf ?? uf),
-            }));
-          onNeighborsDetected(list);
+        if (!neighbors) {
+          setNeighborStatus('error');
+          return;
         }
+        renderNeighbors(neighbors, mainCar);
+        const list = (neighbors.features ?? [])
+          .map(f => f.properties as any)
+          .filter(p => p?.cod_imovel && p.cod_imovel !== mainCar)
+          .map(p => ({
+            car: String(p.cod_imovel),
+            area: Number(p.area ?? 0),
+            municipio: String(p.municipio ?? ''),
+            uf: String(p.uf ?? uf),
+          }));
+        setNeighborCount(list.length);
+        setNeighborStatus(list.length > 0 ? 'done' : 'empty');
+        onNeighborsDetected?.(list);
       } catch {
-        /* ignore neighbor fetch errors */
+        setNeighborStatus('error');
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -308,20 +319,28 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     }
   };
 
-  // Reaplica estilo dos polígonos vizinhos quando o conjunto de selecionados muda.
-  // Sem isso, a borda azul não destaca os polígonos marcados/desmarcados via popup.
+  // Reaplica estilo dos polígonos vizinhos quando seleção OU lista de cadastrados muda.
+  // Sem isso, o feedback visual (verde quando cadastrado, azul forte quando selecionado)
+  // não acompanha as mudanças no painel.
   useEffect(() => {
     neighborLayersRef.current.forEach((layer, car) => {
       layer.setStyle(styleForNeighbor(car));
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedNeighbors]);
+  }, [selectedNeighbors, registeredNeighbors]);
 
-  // Estilo aplicado a um polígono vizinho conforme estado de seleção atual.
-  // Selecionado = preenchimento mais forte + borda mais grossa, dando feedback
-  // visual de "este vai entrar no cadastro em lote".
+  // Estilo aplicado a um polígono vizinho conforme estado atual:
+  //   - VERDE  → já cadastrado como confrontante (precedência máxima)
+  //   - AZUL FORTE → selecionado no painel pra cadastro em lote
+  //   - AZUL CLARO → detectado mas não selecionado
   const styleForNeighbor = (car: string): L.PathOptions => {
-    const isSelected = selectedNeighborsRef.current.has(sanitizeCar(car));
+    const sanitized = sanitizeCar(car);
+    const isRegistered = registeredNeighborsRef.current.has(sanitized);
+    if (isRegistered) {
+      // Verde alinhado com o tema do app (hsl(152,55%,28%)).
+      return { color: 'hsl(152,55%,28%)', weight: 2, fillColor: 'hsl(152,55%,40%)', fillOpacity: 0.35 };
+    }
+    const isSelected = selectedNeighborsRef.current.has(sanitized);
     return isSelected
       ? { color: '#1D4ED8', weight: 2.5, fillColor: '#3B82F6', fillOpacity: 0.45 }
       : { color: '#3B82F6', weight: 1, fillColor: '#85B7EB', fillOpacity: 0.15 };
@@ -353,21 +372,28 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
         // Re-renderiza o conteúdo do popup a cada abertura — o estado de
         // seleção muda dinamicamente e o label do botão precisa refletir isso.
         const buildHtml = () => {
+          const isRegistered = registeredNeighborsRef.current.has(sanitized);
           const isSelected = selectedNeighborsRef.current.has(sanitized);
           const toggleLabel = isSelected ? '☑ Desmarcar do painel' : '☐ Marcar no painel';
           const toggleClass = isSelected
             ? 'bg-primary text-primary-foreground'
             : 'bg-secondary text-secondary-foreground border border-border';
+          const headerLabel = isRegistered
+            ? '<span class="font-semibold text-success">✓ Confrontante já cadastrado</span>'
+            : '<span class="font-semibold">Imóvel vizinho (SICAR)</span>';
+          const actionsHtml = isRegistered
+            ? '<div class="text-[11px] text-muted-foreground italic">Este imóvel já consta na lista de confrontantes.</div>'
+            : `<div class="flex flex-wrap gap-1.5 pt-1">
+                ${showToggleBtn ? `<button id="${toggleBtnId}" class="px-2 py-1 rounded ${toggleClass} text-xs">${toggleLabel}</button>` : ''}
+                ${showAddBtn ? `<button id="${addBtnId}" class="px-2 py-1 rounded bg-secondary text-secondary-foreground text-xs border border-border">+ Listar como confrontante</button>` : ''}
+              </div>`;
           return `
             <div class="text-xs space-y-1.5" style="min-width:240px">
-              <div class="font-semibold">Imóvel vizinho (SICAR)</div>
+              <div>${headerLabel}</div>
               <div><span class="text-muted-foreground">CAR:</span> <span class="font-mono break-all">${car}</span></div>
               <div><span class="text-muted-foreground">Área total:</span> ${area.toFixed(2)} ha</div>
               <div><span class="text-muted-foreground">Município:</span> ${municipio}${uf ? '/' + uf : ''}</div>
-              <div class="flex flex-wrap gap-1.5 pt-1">
-                ${showToggleBtn ? `<button id="${toggleBtnId}" class="px-2 py-1 rounded ${toggleClass} text-xs">${toggleLabel}</button>` : ''}
-                ${showAddBtn ? `<button id="${addBtnId}" class="px-2 py-1 rounded bg-secondary text-secondary-foreground text-xs border border-border">+ Listar como confrontante</button>` : ''}
-              </div>
+              ${actionsHtml}
             </div>`;
         };
 
@@ -434,6 +460,7 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
       onCarLoaded?.(result.feature.cod_imovel);
 
       // Buscar confrontantes diretos (que tocam a fronteira do imóvel) — não usa raio.
+      setNeighborStatus('loading');
       try {
         const neighbors = await fetchTouchingNeighbors(
           result.feature.uf as SicarUF,
@@ -442,22 +469,23 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
         );
         if (neighbors) {
           renderNeighbors(neighbors, result.feature.cod_imovel);
-          // Notifica o consumidor com a lista enxuta dos confrontantes detectados.
-          if (onNeighborsDetected) {
-            const list = (neighbors.features ?? [])
-              .map(f => f.properties as any)
-              .filter(p => p?.cod_imovel && p.cod_imovel !== result.feature.cod_imovel)
-              .map(p => ({
-                car: String(p.cod_imovel),
-                area: Number(p.area ?? 0),
-                municipio: String(p.municipio ?? ''),
-                uf: String(p.uf ?? result.feature.uf),
-              }));
-            onNeighborsDetected(list);
-          }
+          const list = (neighbors.features ?? [])
+            .map(f => f.properties as any)
+            .filter(p => p?.cod_imovel && p.cod_imovel !== result.feature.cod_imovel)
+            .map(p => ({
+              car: String(p.cod_imovel),
+              area: Number(p.area ?? 0),
+              municipio: String(p.municipio ?? ''),
+              uf: String(p.uf ?? result.feature.uf),
+            }));
+          setNeighborCount(list.length);
+          setNeighborStatus(list.length > 0 ? 'done' : 'empty');
+          onNeighborsDetected?.(list);
+        } else {
+          setNeighborStatus('error');
         }
       } catch {
-        /* ignore neighbor errors */
+        setNeighborStatus('error');
       }
 
       toast({
@@ -676,6 +704,31 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
           {fullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
           <span className="ml-1.5 hidden sm:inline">{fullscreen ? 'Reduzir' : 'Expandir'}</span>
         </Button>
+        {neighborStatus !== 'idle' && (
+          <div className="absolute top-2 right-14 z-[400]">
+            {neighborStatus === 'loading' && (
+              <Badge className="bg-info/15 text-info border-info/30 shadow-md gap-1.5">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                Buscando confrontantes…
+              </Badge>
+            )}
+            {neighborStatus === 'done' && (
+              <Badge className="bg-success/15 text-success border-success/30 shadow-md">
+                {neighborCount} confrontante{neighborCount === 1 ? '' : 's'} detectado{neighborCount === 1 ? '' : 's'}
+              </Badge>
+            )}
+            {neighborStatus === 'empty' && (
+              <Badge className="bg-muted text-muted-foreground border-border shadow-md">
+                Nenhum confrontante detectado
+              </Badge>
+            )}
+            {neighborStatus === 'error' && (
+              <Badge className="bg-destructive/15 text-destructive border-destructive/30 shadow-md">
+                Falha ao consultar SICAR
+              </Badge>
+            )}
+          </div>
+        )}
       </div>
 
       {!readOnly && (
