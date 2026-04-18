@@ -255,6 +255,6 @@ function drawGraphicScale(pdf: jsPDF, x: number, y: number, width: number, scale
   // Rótulos
   pdf.setFontSize(6).setTextColor(0);
   pdf.text('0', x, y + 5, { align: 'center' });
-  pdf.text(`${(niceMeters * SEG / 2).toLocaleString('pt-BR')} m`, x + realTotalW / 2, y + 5, { align: 'center' });
+  pdf.text(`${((niceMeters * SEG) / 2).toLocaleString('pt-BR')} m`, x + realTotalW / 2, y + 5, { align: 'center' });
   pdf.text(`${(niceMeters * SEG).toLocaleString('pt-BR')} m`, x + realTotalW, y + 5, { align: 'center' });
 }
