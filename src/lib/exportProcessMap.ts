@@ -78,9 +78,10 @@ async function captureBasemap(map: L.Map, container: HTMLElement): Promise<Basem
   const tMinY = Math.floor(min.y / tileSize);
   const tMaxX = Math.floor(max.x / tileSize);
   const tMaxY = Math.floor(max.y / tileSize);
-  const originContainer = map.containerPointToLayerPoint([0, 0]);
-  // pixel da origem do container no sistema de pixels do mapa
-  const mapPaneOriginPixel = map.project(map.getBounds().getNorthWest(), zoom);
+  // bounds.min é o pixel-mundo (no zoom atual) do canto superior esquerdo do
+  // viewport. Subtraímos para ter coordenadas relativas ao container.
+  const originX = min.x;
+  const originY = min.y;
 
   for (const layer of tileLayers) {
     const anyLayer = layer as any;
