@@ -59,12 +59,14 @@ interface Props {
   onCarLoaded?: (car: string) => void;
   /** Disparado quando o usuário clica em "Adicionar como confrontante" no popup de um imóvel identificado pelo clique. */
   onNeighborPick?: (info: { car: string; area: number; municipio: string; uf: string }) => void;
+  /** Disparado quando os confrontantes diretos (TOUCHES) são detectados automaticamente após o carregamento do CAR principal. */
+  onNeighborsDetected?: (neighbors: Array<{ car: string; area: number; municipio: string; uf: string }>) => void;
 }
 
 const BASE_LAYER_KEY = 'geodoc.map.baseLayer';
 
 const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
-  { initialData, onChange, height = '500px', readOnly, carNumber, onCarLoaded, onNeighborPick },
+  { initialData, onChange, height = '500px', readOnly, carNumber, onCarLoaded, onNeighborPick, onNeighborsDetected },
   ref,
 ) {
   const mapRef = useRef<HTMLDivElement>(null);
@@ -320,7 +322,22 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
           result.feature.geometry,
           result.feature.cod_imovel,
         );
-        if (neighbors) renderNeighbors(neighbors, result.feature.cod_imovel);
+        if (neighbors) {
+          renderNeighbors(neighbors, result.feature.cod_imovel);
+          // Notifica o consumidor com a lista enxuta dos confrontantes detectados.
+          if (onNeighborsDetected) {
+            const list = (neighbors.features ?? [])
+              .map(f => f.properties as any)
+              .filter(p => p?.cod_imovel && p.cod_imovel !== result.feature.cod_imovel)
+              .map(p => ({
+                car: String(p.cod_imovel),
+                area: Number(p.area ?? 0),
+                municipio: String(p.municipio ?? ''),
+                uf: String(p.uf ?? result.feature.uf),
+              }));
+            onNeighborsDetected(list);
+          }
+        }
       } catch {
         /* ignore neighbor errors */
       }
