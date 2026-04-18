@@ -42,8 +42,8 @@ interface Props {
   readOnly?: boolean;
 }
 
-// Proxy WMS para contornar CORS do SICAR (geoserver.car.gov.br)
-const SICAR_WMS_PROXY = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/sicar-wms-proxy`;
+// Chave de persistência da camada base preferida do usuário
+const BASE_LAYER_KEY = 'geodoc.map.baseLayer';
 
 const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
   { initialData, onChange, height = '500px', readOnly },
@@ -91,68 +91,51 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     mapInstance.current = map;
 
     // ===== CAMADAS BASE (mutuamente exclusivas) =====
-    const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors',
-      maxZoom: 19,
-    });
-    const esriImagery = L.tileLayer(
-      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-      {
-        attribution:
-          'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, CNES/Airbus DS, USDA, USGS, AeroGRID, IGN, GIS User Community',
+    // Todas as bases abaixo são gratuitas, sem chave de API, e enviam CORS corretamente.
+    const bases: Record<string, L.TileLayer> = {
+      'Satélite (Esri/Maxar)': L.tileLayer(
+        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        {
+          maxZoom: 20,
+          attribution:
+            '© Esri, Maxar, GeoEye, Earthstar Geographics, CNES/Airbus DS, USDA, USGS, AeroGRID, IGN',
+        },
+      ),
+      'Satélite HD (Clarity)': L.tileLayer(
+        'https://clarity.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        { maxZoom: 21, attribution: '© Esri, Maxar, Microsoft' },
+      ),
+      'Mapa de ruas (Esri)': L.tileLayer(
+        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+        { maxZoom: 20, attribution: '© Esri' },
+      ),
+      'OpenStreetMap': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
-      },
-    );
-    const esriStreets = L.tileLayer(
-      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
-      { attribution: 'Tiles © Esri', maxZoom: 19 },
-    );
-
-    // Satélite Esri por padrão (qualidade Maxar)
-    esriImagery.addTo(map);
-
-    // ===== OVERLAYS WMS DO SICAR (via proxy para evitar CORS) =====
-    const wmsCommon = {
-      format: 'image/png',
-      transparent: true,
-      version: '1.1.1',
-      tileSize: 256,
-      attribution: 'SICAR/SFB',
-      maxZoom: 20,
-      opacity: 0.6,
+        attribution: '© OpenStreetMap contributors',
+      }),
     };
-    const sicarImoveis = L.tileLayer.wms(SICAR_WMS_PROXY, {
-      ...wmsCommon,
-      layers: 'sicar:area_imovel',
-    });
-    const sicarSigef = L.tileLayer.wms(SICAR_WMS_PROXY, {
-      ...wmsCommon,
-      layers: 'sicar:sigef_imoveis_certificados',
-    });
-    const sicarSnci = L.tileLayer.wms(SICAR_WMS_PROXY, {
-      ...wmsCommon,
-      layers: 'sicar:snci',
-    });
 
-    // Por padrão, mostra a camada principal de imóveis CAR
-    sicarImoveis.addTo(map);
+    // Restaurar a base preferida do usuário (localStorage), default Esri Maxar
+    const savedBase = (typeof window !== 'undefined' && localStorage.getItem(BASE_LAYER_KEY)) || '';
+    const initialBaseName = bases[savedBase] ? savedBase : 'Satélite (Esri/Maxar)';
+    bases[initialBaseName].addTo(map);
+
+    // Persistir a escolha sempre que o usuário trocar a base
+    map.on('baselayerchange', (e: L.LayersControlEvent) => {
+      try {
+        localStorage.setItem(BASE_LAYER_KEY, e.name);
+      } catch {
+        /* ignore quota / private mode */
+      }
+    });
 
     // Painel de controle de camadas (canto superior direito)
-    L.control
-      .layers(
-        {
-          'Satélite (Esri/Maxar)': esriImagery,
-          'Mapa (OpenStreetMap)': osm,
-          'Ruas (Esri Streets)': esriStreets,
-        },
-        {
-          'Imóveis CAR (SICAR)': sicarImoveis,
-          'Certificados SIGEF': sicarSigef,
-          'SNCI Brasil': sicarSnci,
-        },
-        { position: 'topright', collapsed: false },
-      )
-      .addTo(map);
+    // NOTE: As camadas WMS do SICAR foram removidas temporariamente — o servidor
+    // geoserver.car.gov.br não envia headers CORS e o edge runtime do Supabase
+    // (Deno) falha no TLS handshake com esse host. Aguardando definição de proxy
+    // alternativo (Cloudflare Worker) para reabilitar overlays de imóveis CAR.
+    L.control.layers(bases, undefined, { position: 'topright', collapsed: true }).addTo(map);
+
 
     layerGroup.current = L.layerGroup().addTo(map);
 
