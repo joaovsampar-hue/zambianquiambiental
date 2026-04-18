@@ -215,15 +215,14 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     // Camada de popups dos cliques SIGEF — separada para limpar facilmente.
     sigefInfoLayer.current = L.layerGroup().addTo(map);
 
-    // Toggle do grupo SIGEF marca/desmarca TODAS as UFs como ativas para a lógica
-    // de GetFeatureInfo (que só consulta UFs ativas).
+    // Toggle do grupo SIGEF: ativa/desativa GetFeatureInfo para a UF carregada.
     map.on('overlayadd', (e: L.LayersControlEvent) => {
-      if (e.name === 'SIGEF (todas as UFs)') {
-        SIGEF_UFS.forEach((uf) => sigefActiveUFs.current.add(uf));
+      if (e.name === 'SIGEF/INCRA' && currentUfRef.current) {
+        sigefActiveUFs.current.add(currentUfRef.current as SigefUF);
       }
     });
     map.on('overlayremove', (e: L.LayersControlEvent) => {
-      if (e.name === 'SIGEF (todas as UFs)') {
+      if (e.name === 'SIGEF/INCRA') {
         sigefActiveUFs.current.clear();
         sigefInfoLayer.current?.clearLayers();
       }
