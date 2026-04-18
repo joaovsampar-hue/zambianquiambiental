@@ -48,6 +48,10 @@ export interface PropertyMapHandle {
   flyTo: (lat: number, lng: number, zoom?: number) => void;
   /** Busca o polígono no SICAR pelo número do CAR e renderiza no mapa. */
   loadCarPolygon: (car: string) => Promise<boolean>;
+  /** Retorna a instância Leaflet — usado pra exportação do mapa. */
+  getMap: () => L.Map | null;
+  /** Retorna o container DOM raiz do mapa — usado pra captura de screenshot. */
+  getContainer: () => HTMLElement | null;
 }
 
 interface Props {
@@ -133,6 +137,8 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
       mapInstance.current?.flyTo([lat, lng], zoom, { duration: 0.8 });
     },
     loadCarPolygon: async (car: string) => loadCar(car),
+    getMap: () => mapInstance.current,
+    getContainer: () => mapRef.current,
   }), []);
 
   // Initialize map once

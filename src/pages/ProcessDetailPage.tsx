@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -8,13 +8,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import Breadcrumb from '@/components/Breadcrumb';
-import PropertyMap from '@/components/map/PropertyMap';
+import PropertyMap, { type PropertyMapHandle } from '@/components/map/PropertyMap';
 import NeighborsList from '@/components/process/NeighborsList';
 import DetectedNeighborsPanel, { type DetectedNeighbor } from '@/components/process/DetectedNeighborsPanel';
 import { sanitizeCar } from '@/lib/sicar';
 import { STAGES, stageLabel, serviceLabel } from '@/lib/processStages';
 import { useToast } from '@/hooks/use-toast';
-import { FileText, MapPin } from 'lucide-react';
+import { exportProcessMap } from '@/lib/exportProcessMap';
+import { FileText, MapPin, Download } from 'lucide-react';
 
 export default function ProcessDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -23,6 +24,8 @@ export default function ProcessDetailPage() {
   const qc = useQueryClient();
   const [detected, setDetected] = useState<DetectedNeighbor[]>([]);
   const [selectedNeighbors, setSelectedNeighbors] = useState<Set<string>>(new Set());
+  const mapRef = useRef<PropertyMapHandle>(null);
+  const [exporting, setExporting] = useState(false);
 
   // Sempre que a lista de detectados muda, marca por padrão somente os pendentes.
   // Usamos chave estável (CARs ordenados) pra evitar render loop.
@@ -34,7 +37,7 @@ export default function ProcessDetailPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('processes')
-        .select('*, client:clients(id,name), property:properties(id,denomination)')
+        .select('*, client:clients(id,name), property:properties(id,denomination,total_area_ha,municipality,state)')
         .eq('id', id!).single();
       if (error) throw error;
       return data as any;
@@ -201,8 +204,49 @@ export default function ProcessDetailPage() {
             onRegister={async (list) => { await bulkInsertNeighbors.mutateAsync(list); }}
             isRegistering={bulkInsertNeighbors.isPending}
           />
-          <Card><CardContent className="p-4">
+          <Card><CardContent className="p-4 space-y-3">
+            <div className="flex justify-end">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={exporting}
+                onClick={async () => {
+                  const handle = mapRef.current;
+                  const container = handle?.getContainer();
+                  const leaflet = handle?.getMap();
+                  if (!container || !leaflet) {
+                    toast({ title: 'Mapa não está pronto', variant: 'destructive' });
+                    return;
+                  }
+                  setExporting(true);
+                  try {
+                    const prop = process.property as any;
+                    const loc = prop?.municipality && prop?.state ? ` — ${prop.municipality}/${prop.state}` : '';
+                    const denom = prop?.denomination ?? process.title ?? 'Imóvel';
+                    await exportProcessMap({
+                      mapContainer: container,
+                      leafletMap: leaflet,
+                      title: `Análise Prévia — ${denom}${loc}`,
+                      clientName: process.client?.name,
+                      responsibleName: user?.user_metadata?.full_name,
+                      producedBy: user?.user_metadata?.full_name,
+                      areaHa: prop?.total_area_ha ?? undefined,
+                      fileName: `mapa-${process.process_number}`,
+                    });
+                    toast({ title: 'PDF gerado', description: 'O download começou automaticamente.' });
+                  } catch (e: any) {
+                    toast({ title: 'Falha ao exportar', description: e?.message ?? 'Erro desconhecido', variant: 'destructive' });
+                  } finally {
+                    setExporting(false);
+                  }
+                }}
+              >
+                <Download className="w-4 h-4 mr-1.5" />
+                {exporting ? 'Gerando PDF…' : 'Exportar mapa (PDF)'}
+              </Button>
+            </div>
             <PropertyMap
+              ref={mapRef}
               initialData={geometry ? (geometry as any) : undefined}
               onChange={(d) => saveGeometry.mutate(d)}
               height="600px"
