@@ -179,7 +179,7 @@ export default function ProcessDetailPage() {
           <DetectedNeighborsPanel
             detected={detected}
             alreadyRegistered={registeredSet}
-            onRegister={(list) => bulkInsertNeighbors.mutateAsync(list)}
+            onRegister={async (list) => { await bulkInsertNeighbors.mutateAsync(list); }}
             isRegistering={bulkInsertNeighbors.isPending}
           />
           <Card><CardContent className="p-4">
