@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -11,6 +11,7 @@ import Breadcrumb from '@/components/Breadcrumb';
 import PropertyMap, { type PropertyMapHandle } from '@/components/map/PropertyMap';
 import NeighborsList from '@/components/process/NeighborsList';
 import DetectedNeighborsPanel, { type DetectedNeighbor } from '@/components/process/DetectedNeighborsPanel';
+import DeleteButton from '@/components/DeleteButton';
 import { sanitizeCar } from '@/lib/sicar';
 import { STAGES, stageLabel, serviceLabel } from '@/lib/processStages';
 import { useToast } from '@/hooks/use-toast';
@@ -23,10 +24,40 @@ export default function ProcessDetailPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const [detected, setDetected] = useState<DetectedNeighbor[]>([]);
   const [selectedNeighbors, setSelectedNeighbors] = useState<Set<string>>(new Set());
   const mapRef = useRef<PropertyMapHandle>(null);
   const [exporting, setExporting] = useState(false);
+
+  const deleteProcess = useMutation({
+    mutationFn: async () => {
+      await supabase.from('analyses').delete().eq('process_id', id!);
+      await supabase.from('process_neighbors').delete().eq('process_id', id!);
+      await supabase.from('process_geometry').delete().eq('process_id', id!);
+      const { error } = await supabase.from('processes').delete().eq('id', id!);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['active-processes'] });
+      qc.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      toast({ title: 'Processo excluído' });
+      navigate('/');
+    },
+    onError: (e: any) => toast({ title: 'Erro', description: e.message, variant: 'destructive' }),
+  });
+
+  const deleteAnalysis = useMutation({
+    mutationFn: async (analysisId: string) => {
+      const { error } = await supabase.from('analyses').delete().eq('id', analysisId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['process-analyses', id] });
+      toast({ title: 'Análise excluída' });
+    },
+    onError: (e: any) => toast({ title: 'Erro', description: e.message, variant: 'destructive' }),
+  });
 
   // Sempre que a lista de detectados muda, marca por padrão somente os pendentes.
   // Usamos chave estável (CARs ordenados) pra evitar render loop.
@@ -186,6 +217,14 @@ export default function ProcessDetailPage() {
               {STAGES.map(s => <SelectItem key={s.key} value={s.key}>{s.label}</SelectItem>)}
             </SelectContent>
           </Select>
+          <DeleteButton
+            variant="outline"
+            label="Excluir processo"
+            title="Excluir processo?"
+            description={`O processo ${process.process_number} e todos os confrontantes, análises e geometria serão removidos.`}
+            onConfirm={async () => { await deleteProcess.mutateAsync(); }}
+            stopPropagation={false}
+          />
         </div>
       </div>
 
@@ -320,18 +359,26 @@ export default function ProcessDetailPage() {
             ) : (
               <div className="space-y-2">
                 {analyses.map((a: any) => (
-                  <Link key={a.id} to={`/analysis/${a.id}`}
+                  <div key={a.id}
                     className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-accent/50">
-                    <div>
+                    <Link to={`/analysis/${a.id}`} className="flex-1 min-w-0">
                       <p className="text-sm font-medium">Análise v{a.version}</p>
                       <p className="text-xs text-muted-foreground">{new Date(a.created_at).toLocaleString('pt-BR')}</p>
+                    </Link>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs px-2 py-1 rounded-full ${
+                        a.status === 'completed' ? 'bg-success/15 text-success' :
+                        a.status === 'error' ? 'bg-destructive/15 text-destructive' :
+                        'bg-info/15 text-info'
+                      }`}>{a.status}</span>
+                      <DeleteButton
+                        iconOnly
+                        title="Excluir análise?"
+                        description={`A análise v${a.version} será removida permanentemente.`}
+                        onConfirm={async () => { await deleteAnalysis.mutateAsync(a.id); }}
+                      />
                     </div>
-                    <span className={`text-xs px-2 py-1 rounded-full ${
-                      a.status === 'completed' ? 'bg-success/15 text-success' :
-                      a.status === 'error' ? 'bg-destructive/15 text-destructive' :
-                      'bg-info/15 text-info'
-                    }`}>{a.status}</span>
-                  </Link>
+                  </div>
                 ))}
               </div>
             )}

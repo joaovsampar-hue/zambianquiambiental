@@ -1,13 +1,30 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Search, FileSearch } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import DeleteButton from '@/components/DeleteButton';
+import { useToast } from '@/hooks/use-toast';
 
 export default function HistoryPage() {
   const [search, setSearch] = useState('');
+  const qc = useQueryClient();
+  const { toast } = useToast();
+
+  const deleteAnalysis = useMutation({
+    mutationFn: async (analysisId: string) => {
+      const { error } = await supabase.from('analyses').delete().eq('id', analysisId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['all-analyses'] });
+      qc.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      toast({ title: 'Análise excluída' });
+    },
+    onError: (e: any) => toast({ title: 'Erro', description: e.message, variant: 'destructive' }),
+  });
 
   const { data: analyses, isLoading } = useQuery({
     queryKey: ['all-analyses', search],
@@ -70,18 +87,26 @@ export default function HistoryPage() {
                       </p>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <span className={`text-xs px-2 py-1 rounded-full font-medium ${
-                      a.status === 'completed' ? 'bg-success/15 text-success' :
-                      a.status === 'error' ? 'bg-destructive/15 text-destructive' :
-                      a.status === 'processing' ? 'bg-info/15 text-info' :
-                      'bg-muted text-muted-foreground'
-                    }`}>
-                      {statusMap[a.status] ?? a.status}
-                    </span>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {new Date(a.created_at).toLocaleDateString('pt-BR')}
-                    </p>
+                  <div className="flex items-center gap-3">
+                    <div className="text-right">
+                      <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+                        a.status === 'completed' ? 'bg-success/15 text-success' :
+                        a.status === 'error' ? 'bg-destructive/15 text-destructive' :
+                        a.status === 'processing' ? 'bg-info/15 text-info' :
+                        'bg-muted text-muted-foreground'
+                      }`}>
+                        {statusMap[a.status] ?? a.status}
+                      </span>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {new Date(a.created_at).toLocaleDateString('pt-BR')}
+                      </p>
+                    </div>
+                    <DeleteButton
+                      iconOnly
+                      title="Excluir análise?"
+                      description="A análise da matrícula será removida permanentemente."
+                      onConfirm={async () => { await deleteAnalysis.mutateAsync(a.id); }}
+                    />
                   </div>
                 </CardContent>
               </Card>

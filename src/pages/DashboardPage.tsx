@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -8,12 +8,33 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Link } from 'react-router-dom';
 import { Plus, Search, Folder, Users, MapPin, FileSearch } from 'lucide-react';
 import { STAGES, stageLabel, serviceLabel } from '@/lib/processStages';
+import DeleteButton from '@/components/DeleteButton';
+import { useToast } from '@/hooks/use-toast';
 
 const daysSince = (iso: string) => Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
 
 export default function DashboardPage() {
   const [search, setSearch] = useState('');
   const [stageFilter, setStageFilter] = useState<string>('all');
+  const qc = useQueryClient();
+  const { toast } = useToast();
+
+  const deleteProcess = useMutation({
+    mutationFn: async (processId: string) => {
+      // Limpa dependências antes (sem FK cascade na tabela)
+      await supabase.from('analyses').delete().eq('process_id', processId);
+      await supabase.from('process_neighbors').delete().eq('process_id', processId);
+      await supabase.from('process_geometry').delete().eq('process_id', processId);
+      const { error } = await supabase.from('processes').delete().eq('id', processId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['active-processes'] });
+      qc.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      toast({ title: 'Processo excluído' });
+    },
+    onError: (e: any) => toast({ title: 'Erro ao excluir', description: e.message, variant: 'destructive' }),
+  });
 
   const { data: stats } = useQuery({
     queryKey: ['dashboard-stats'],
@@ -122,13 +143,21 @@ export default function DashboardPage() {
               <Link key={p.id} to={`/processes/${p.id}`}>
                 <Card className={`hover:border-primary/40 transition-colors cursor-pointer border-l-4 ${urgency}`}>
                   <CardContent className="p-4 space-y-2">
-                    <div className="flex items-start justify-between">
+                    <div className="flex items-start justify-between gap-2">
                       <span className="font-mono text-xs px-2 py-0.5 rounded bg-primary/10 text-primary">
                         {p.process_number}
                       </span>
-                      <span className="text-xs text-muted-foreground">
-                        {days === 0 ? 'Hoje' : `${days}d sem atualização`}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">
+                          {days === 0 ? 'Hoje' : `${days}d sem atualização`}
+                        </span>
+                        <DeleteButton
+                          iconOnly
+                          title="Excluir processo?"
+                          description={`Processo ${p.process_number} e todos os confrontantes, análises e geometria vinculados serão removidos.`}
+                          onConfirm={async () => { await deleteProcess.mutateAsync(p.id); }}
+                        />
+                      </div>
                     </div>
                     <div>
                       <p className="font-medium text-sm leading-tight">
