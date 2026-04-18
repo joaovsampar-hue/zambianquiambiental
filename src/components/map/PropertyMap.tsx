@@ -109,8 +109,10 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
   // usadas dentro de handlers do popup que são registrados uma única vez.
   const selectedNeighborsRef = useRef<Set<string>>(selectedNeighbors ?? new Set());
   const onNeighborToggleRef = useRef<typeof onNeighborToggle>(onNeighborToggle);
+  const registeredNeighborsRef = useRef<Set<string>>(registeredNeighbors ?? new Set());
   selectedNeighborsRef.current = selectedNeighbors ?? new Set();
   onNeighborToggleRef.current = onNeighborToggle;
+  registeredNeighborsRef.current = registeredNeighbors ?? new Set();
 
   useImperativeHandle(ref, () => ({
     flyToUF: (uf: string) => {
