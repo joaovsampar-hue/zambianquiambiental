@@ -251,7 +251,7 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     setLoadingCar(true);
     try {
       const result = await fetchCarPolygon(car);
-      if (!result.ok) {
+      if (result.ok === false) {
         const msg =
           result.reason === 'invalid_format'
             ? 'Formato inválido. Esperado: UF-XXXXXXX-...'
