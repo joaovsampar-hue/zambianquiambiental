@@ -198,10 +198,10 @@ function drawGeoFeature(
     anyPdf.setGState(new anyPdf.GState({ opacity: style.fillOpacity, 'stroke-opacity': 1 }));
   }
 
-  const drawRing = (ring: number[][]) => {
-    if (ring.length < 2) return;
+  const renderRing = (ring: number[][]) => {
+    if (!ring || ring.length < 4) return;
     const pts = ring.map(([lng, lat]) => proj(lat, lng));
-    drawRingSimple(pdf, pts, drawMode);
+    drawClosedRing(pdf, pts, drawMode);
   };
 
   if (geom.type === 'Polygon') {
