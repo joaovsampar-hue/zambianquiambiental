@@ -66,7 +66,7 @@ function buildUpstreamUrl(reqUrl: URL): { url: string; tema: string } | null {
 }
 
 /** Fetch com timeout — o INCRA pode levar 20-40s em queries pesadas. */
-async function fetchUpstream(url: string, timeoutMs = 35000): Promise<Response> {
+async function fetchUpstreamOnce(url: string, timeoutMs: number): Promise<Response> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
@@ -74,6 +74,41 @@ async function fetchUpstream(url: string, timeoutMs = 35000): Promise<Response> 
   } finally {
     clearTimeout(t);
   }
+}
+
+/**
+ * Fetch com retry + backoff exponencial (2s/4s/8s) quando o INCRA dá timeout
+ * (AbortError) ou status 5xx. O acervo fundiário é instável e cai com frequência;
+ * sem retry geramos muitos falso-negativos no popup ("Sem certificação SIGEF").
+ *
+ * Total worst-case: 3 tentativas × 35s timeout + 2s+4s = ~111s. O Leaflet aceita
+ * tiles lentos sem cancelar — o ganho em recall vale a latência ocasional.
+ */
+async function fetchUpstream(url: string, timeoutMs = 35000): Promise<Response> {
+  const delays = [2000, 4000, 8000]; // backoff entre tentativas (3 tentativas no total)
+  let lastErr: unknown = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const resp = await fetchUpstreamOnce(url, timeoutMs);
+      // Retry só em 5xx (erros do upstream). 4xx = pedido inválido, não adianta repetir.
+      if (resp.status >= 500 && attempt < 2) {
+        console.warn(`[sigef-incra-proxy] upstream ${resp.status}, retry ${attempt + 1}/3`);
+        await new Promise((r) => setTimeout(r, delays[attempt]));
+        continue;
+      }
+      return resp;
+    } catch (e) {
+      lastErr = e;
+      const isAbort = e instanceof DOMException && e.name === 'AbortError';
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn(`[sigef-incra-proxy] tentativa ${attempt + 1}/3 falhou (${isAbort ? 'timeout' : msg})`);
+      if (attempt < 2) {
+        await new Promise((r) => setTimeout(r, delays[attempt]));
+        continue;
+      }
+    }
+  }
+  throw lastErr ?? new Error('All retries failed');
 }
 
 Deno.serve(async (req) => {
@@ -100,8 +135,18 @@ Deno.serve(async (req) => {
     const upstreamResp = await fetchUpstream(upstream.url);
     const contentType = upstreamResp.headers.get('content-type') ?? 'application/octet-stream';
     const body = await upstreamResp.arrayBuffer();
-    // Cache curto: tiles repetem muito (1h é seguro pois o SIGEF muda devagar).
-    const cache = contentType.startsWith('image/') ? 'public, max-age=3600' : 'public, max-age=300';
+    // Cache agressivo (24h) para respostas válidas — o SIGEF muda devagar (semanas/meses)
+    // e o servidor do INCRA é instável: vale guardar bastante para reduzir hits no upstream.
+    // stale-while-revalidate dobra a janela útil servindo cache enquanto revalida em background.
+    const isOk = upstreamResp.status >= 200 && upstreamResp.status < 300;
+    let cache: string;
+    if (!isOk) {
+      cache = 'no-store'; // erros não devem ser cacheados
+    } else if (contentType.startsWith('image/')) {
+      cache = 'public, max-age=86400, stale-while-revalidate=86400'; // 24h + 24h SWR
+    } else {
+      cache = 'public, max-age=86400, stale-while-revalidate=43200'; // 24h + 12h SWR (HTML/XML)
+    }
     return new Response(body, {
       status: upstreamResp.status,
       headers: {
@@ -112,6 +157,21 @@ Deno.serve(async (req) => {
       },
     });
   } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    console.error('[sigef-incra-proxy] upstream error após retries', upstream.url, msg);
+    return new Response(
+      JSON.stringify({ error: 'Upstream INCRA timeout/erro após 3 tentativas', detail: msg }),
+      {
+        status: 502,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store',
+        },
+      },
+    );
+  }
+});
     const msg = e instanceof Error ? e.message : 'Unknown error';
     console.error('[sigef-incra-proxy] upstream error', upstream.url, msg);
     return new Response(
