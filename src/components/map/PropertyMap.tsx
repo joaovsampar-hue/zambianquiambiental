@@ -314,6 +314,8 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     sigefWmsByUFRef.current?.clear();
 
     // SICAR — uma WMS para a UF do imóvel.
+    // ITEM 6 — Camada 1: a WMS é renderizada pelo SFB (linhas laranja). Mantemos
+    // opacidade 0.85 para que as linhas fiquem nítidas sobre o satélite.
     if ((SICAR_UFS as readonly string[]).includes(uf)) {
       const wmsSicar = L.tileLayer.wms(SICAR_WMS, {
         layers: sicarLayerForUF(uf),
@@ -322,7 +324,7 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
         version: '1.3.0',
         uppercase: true,
         attribution: 'SICAR/SFB',
-        opacity: 0.55,
+        opacity: 0.85,
       } as L.WMSOptions);
       wmsSicar.on('tileerror', () => {
         const w = wmsSicar as L.TileLayer & { __notified?: boolean };
