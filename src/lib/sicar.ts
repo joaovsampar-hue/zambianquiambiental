@@ -59,6 +59,37 @@ export interface CarFetchError {
 }
 
 /**
+ * Wrapper de `fetch` com retry exponencial específico pra falhas transitórias do
+ * GeoServer/Cloudflare:
+ *   - HTTP 522 (Connection Timed Out) — Cloudflare não conseguiu falar com o origin
+ *   - HTTP 524 (A Timeout Occurred) — origin demorou mais de 100s
+ *   - HTTP 502/503/504 — gateway/upstream temporariamente fora
+ *   - AbortError de timeout client-side
+ *
+ * Backoff: 1s → 2s → 4s. Máx. 3 tentativas.
+ */
+async function fetchWithRetry(url: string, init?: RequestInit, maxAttempts = 3): Promise<Response> {
+  const transientStatuses = new Set([502, 503, 504, 522, 524]);
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const resp = await fetch(url, init);
+      if (resp.ok) return resp;
+      if (!transientStatuses.has(resp.status) || attempt === maxAttempts) return resp;
+      // Lê (e descarta) o corpo pra liberar a conexão antes do retry.
+      try { await resp.text(); } catch { /* ignore */ }
+    } catch (e) {
+      lastError = e;
+      if (attempt === maxAttempts) throw e;
+    }
+    // Backoff exponencial: 1s, 2s, 4s
+    await new Promise(r => setTimeout(r, 1000 * 2 ** (attempt - 1)));
+  }
+  // Caminho inalcançável — todas as branches retornam ou lançam.
+  throw lastError ?? new Error('SICAR: retries esgotados');
+}
+
+/**
  * Busca o polígono de um imóvel pelo número do CAR via WFS GetFeature.
  * Retorna GeoJSON pronto pra ser renderizado no Leaflet.
  */
@@ -80,7 +111,7 @@ export async function fetchCarPolygon(car: string): Promise<CarFetchResult | Car
   });
 
   try {
-    const resp = await fetch(`${SICAR_WFS}?${params.toString()}`);
+    const resp = await fetchWithRetry(`${SICAR_WFS}?${params.toString()}`);
     if (!resp.ok) {
       return { ok: false, reason: 'network_error', message: `SICAR retornou ${resp.status}` };
     }
