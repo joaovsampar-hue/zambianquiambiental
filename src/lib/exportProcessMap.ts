@@ -205,9 +205,9 @@ function drawGeoFeature(
   };
 
   if (geom.type === 'Polygon') {
-    geom.coordinates.forEach(drawRing);
+    geom.coordinates.forEach(renderRing);
   } else if (geom.type === 'MultiPolygon') {
-    geom.coordinates.forEach(poly => poly.forEach(drawRing));
+    geom.coordinates.forEach(poly => poly.forEach(renderRing));
   }
 
   if (hasGState) {
