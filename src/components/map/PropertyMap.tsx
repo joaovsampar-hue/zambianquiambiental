@@ -194,6 +194,30 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Quando o container muda de tamanho (entra/sai de fullscreen), o Leaflet
+  // precisa recalcular o tamanho dos tiles, senão fica metade cinza.
+  useEffect(() => {
+    if (!mapInstance.current) return;
+    const id = window.setTimeout(() => mapInstance.current?.invalidateSize(), 220);
+    return () => window.clearTimeout(id);
+  }, [fullscreen]);
+
+  // Esc para sair do modo expandido.
+  useEffect(() => {
+    if (!fullscreen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFullscreen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    // Trava scroll do body enquanto o mapa cobre a tela.
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [fullscreen]);
+
   const update = (next: Partial<MapData>) => {
     dataRef.current = { ...dataRef.current, ...next };
     if (next.source !== undefined) setSource(next.source as GeometrySource);
