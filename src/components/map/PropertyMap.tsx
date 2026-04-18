@@ -85,11 +85,15 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
   const mapInstance = useRef<L.Map | null>(null);
   const layerGroup = useRef<L.LayerGroup | null>(null);
   const neighborsLayer = useRef<L.LayerGroup | null>(null);
-  // Camadas SIGEF — uma WMS por UF (servidas pelo proxy sigef-incra-proxy).
-  // O usuário ativa/desativa via controle de camadas; rastreamos quais UFs
-  // estão ligadas para decidir se o clique deve consultar GetFeatureInfo.
+  // Camadas SICAR/SIGEF — uma única WMS por serviço, escopada à UF do imóvel
+  // (detectada pelo número do CAR). Antes carregávamos as 27 UFs em paralelo,
+  // o que travava o mapa por vários segundos a cada toggle.
   const sigefWmsByUFRef = useRef<Map<string, L.TileLayer.WMS> | null>(null);
   const sigefActiveUFs = useRef<Set<SigefUF>>(new Set());
+  const sicarGroupRef = useRef<L.LayerGroup | null>(null);
+  const sigefGroupRef = useRef<L.LayerGroup | null>(null);
+  // UF atualmente carregada nos overlays (evita reinstanciar quando não muda).
+  const currentUfRef = useRef<string | null>(null);
   const sigefInfoLayer = useRef<L.LayerGroup | null>(null);
   const sigefIdentifyToken = useRef<number>(0);
   const [coords, setCoords] = useState(initialData?.coordinates_text ?? '');
@@ -188,69 +192,19 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
       }
     });
 
-    // ===== OVERLAY SICAR (todas as UFs num único toggle) =====
-    // Antes tínhamos um item por UF na legenda — virou ruído visual com 27 entradas.
-    // Agora é um único `LayerGroup` que agrega WMS de todas as UFs; quando o usuário
-    // ativa "SICAR (todas as UFs)", todas as camadas entram juntas. O servidor só
-    // entrega tiles para o bbox visível, então não há custo extra de carregar todas.
+    // ===== OVERLAYS SICAR/SIGEF (escopados à UF do imóvel) =====
+    // Antes carregávamos as 27 UFs em paralelo — virou tela travada por 5–10s
+    // a cada toggle. Agora detectamos a UF a partir do número do CAR (ex: "SP")
+    // e instanciamos UMA única camada WMS por serviço. O LayerGroup vazio é
+    // recriado dinamicamente quando o CAR muda (ver `useEffect` mais abaixo).
     const overlays: Record<string, L.Layer> = {};
-    const sicarSubLayers: L.TileLayer.WMS[] = [];
-    SICAR_UFS.forEach((uf) => {
-      const wms = L.tileLayer.wms(SICAR_WMS, {
-        layers: sicarLayerForUF(uf),
-        format: 'image/png',
-        transparent: true,
-        version: '1.3.0',
-        uppercase: true,
-        attribution: 'SICAR/SFB',
-        opacity: 0.55,
-      } as L.WMSOptions);
-      wms.on('tileerror', () => {
-        const w = wms as L.TileLayer & { __notified?: boolean };
-        if (w.__notified) return;
-        w.__notified = true;
-        toast({
-          title: 'Camadas SICAR indisponíveis',
-          description: 'O servidor do SFB pode estar fora do ar. Tente novamente em alguns minutos.',
-          variant: 'destructive',
-        });
-      });
-      sicarSubLayers.push(wms);
-    });
-    const sicarGroup = L.layerGroup(sicarSubLayers);
-    overlays['SICAR (todas as UFs)'] = sicarGroup;
-
-    // ===== OVERLAY SIGEF (todas as UFs num único toggle) =====
-    // Mesma lógica do SICAR — um único item na legenda agrega todas as 27 UFs do
-    // acervo fundiário do INCRA. Mantemos `sigefWmsByUFRef` para casos pontuais.
-    const sigefWmsByUF = new Map<string, L.TileLayer.WMS>();
-    const sigefSubLayers: L.TileLayer.WMS[] = [];
-    SIGEF_UFS.forEach((uf) => {
-      const wms = L.tileLayer.wms(SIGEF_PROXY_WMS, {
-        layers: sigefLayerForUF(uf),
-        format: 'image/png',
-        transparent: true,
-        version: '1.1.1',
-        uppercase: true,
-        attribution: 'SIGEF/INCRA',
-        opacity: 0.65,
-      } as L.WMSOptions);
-      wms.on('tileerror', () => {
-        const w = wms as L.TileLayer & { __notified?: boolean };
-        if (w.__notified) return;
-        w.__notified = true;
-        toast({
-          title: 'SIGEF/INCRA indisponível',
-          description: 'O acervo fundiário do INCRA está fora do ar. Tente em alguns minutos.',
-          variant: 'destructive',
-        });
-      });
-      sigefWmsByUF.set(uf, wms);
-      sigefSubLayers.push(wms);
-    });
-    const sigefGroup = L.layerGroup(sigefSubLayers);
-    overlays['SIGEF (todas as UFs)'] = sigefGroup;
-    sigefWmsByUFRef.current = sigefWmsByUF;
+    const sicarGroup = L.layerGroup();
+    const sigefGroup = L.layerGroup();
+    overlays['SICAR'] = sicarGroup;
+    overlays['SIGEF/INCRA'] = sigefGroup;
+    sigefWmsByUFRef.current = new Map();
+    sicarGroupRef.current = sicarGroup;
+    sigefGroupRef.current = sigefGroup;
 
     L.control
       .layers(bases, overlays, { position: 'topright', collapsed: true })
@@ -261,15 +215,14 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     // Camada de popups dos cliques SIGEF — separada para limpar facilmente.
     sigefInfoLayer.current = L.layerGroup().addTo(map);
 
-    // Toggle do grupo SIGEF marca/desmarca TODAS as UFs como ativas para a lógica
-    // de GetFeatureInfo (que só consulta UFs ativas).
+    // Toggle do grupo SIGEF: ativa/desativa GetFeatureInfo para a UF carregada.
     map.on('overlayadd', (e: L.LayersControlEvent) => {
-      if (e.name === 'SIGEF (todas as UFs)') {
-        SIGEF_UFS.forEach((uf) => sigefActiveUFs.current.add(uf));
+      if (e.name === 'SIGEF/INCRA' && currentUfRef.current) {
+        sigefActiveUFs.current.add(currentUfRef.current as SigefUF);
       }
     });
     map.on('overlayremove', (e: L.LayersControlEvent) => {
-      if (e.name === 'SIGEF (todas as UFs)') {
+      if (e.name === 'SIGEF/INCRA') {
         sigefActiveUFs.current.clear();
         sigefInfoLayer.current?.clearLayers();
       }
@@ -290,6 +243,80 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ===== Escopa SICAR/SIGEF à UF do imóvel =====
+  // Detecta a UF do CAR (ex: "SP-3500402-...") e instancia uma única WMS por
+  // serviço dentro dos LayerGroups vazios criados na init. Sem CAR, mostra
+  // SP por padrão (cobre Mariápolis e a maior parte do uso).
+  useEffect(() => {
+    const map = mapInstance.current;
+    const sicarGroup = sicarGroupRef.current;
+    const sigefGroup = sigefGroupRef.current;
+    if (!map || !sicarGroup || !sigefGroup) return;
+    const uf = (carNumber && parseCarUF(carNumber)) || 'SP';
+    if (currentUfRef.current === uf) return;
+    currentUfRef.current = uf;
+
+    // Limpa camadas anteriores e mapeamentos.
+    sicarGroup.clearLayers();
+    sigefGroup.clearLayers();
+    sigefWmsByUFRef.current?.clear();
+
+    // SICAR — uma WMS para a UF do imóvel.
+    if ((SICAR_UFS as readonly string[]).includes(uf)) {
+      const wmsSicar = L.tileLayer.wms(SICAR_WMS, {
+        layers: sicarLayerForUF(uf),
+        format: 'image/png',
+        transparent: true,
+        version: '1.3.0',
+        uppercase: true,
+        attribution: 'SICAR/SFB',
+        opacity: 0.55,
+      } as L.WMSOptions);
+      wmsSicar.on('tileerror', () => {
+        const w = wmsSicar as L.TileLayer & { __notified?: boolean };
+        if (w.__notified) return;
+        w.__notified = true;
+        toast({
+          title: 'SICAR indisponível',
+          description: 'O servidor do SFB pode estar fora do ar. Tente novamente em alguns minutos.',
+          variant: 'destructive',
+        });
+      });
+      sicarGroup.addLayer(wmsSicar);
+    }
+
+    // SIGEF — idem.
+    if ((SIGEF_UFS as readonly string[]).includes(uf)) {
+      const wmsSigef = L.tileLayer.wms(SIGEF_PROXY_WMS, {
+        layers: sigefLayerForUF(uf),
+        format: 'image/png',
+        transparent: true,
+        version: '1.1.1',
+        uppercase: true,
+        attribution: 'SIGEF/INCRA',
+        opacity: 0.65,
+      } as L.WMSOptions);
+      wmsSigef.on('tileerror', () => {
+        const w = wmsSigef as L.TileLayer & { __notified?: boolean };
+        if (w.__notified) return;
+        w.__notified = true;
+        toast({
+          title: 'SIGEF/INCRA indisponível',
+          description: 'O acervo fundiário do INCRA está fora do ar. Tente em alguns minutos.',
+          variant: 'destructive',
+        });
+      });
+      sigefWmsByUFRef.current?.set(uf, wmsSigef);
+      sigefGroup.addLayer(wmsSigef);
+      // Se o overlay SIGEF já estiver visível, atualiza o set de UFs ativas.
+      if (map.hasLayer(sigefGroup)) {
+        sigefActiveUFs.current.clear();
+        sigefActiveUFs.current.add(uf as SigefUF);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [carNumber]);
 
   // Quando há geometria pré-carregada (vinda do banco) + número CAR, busca os
   // confrontantes diretos automaticamente. Sem isso, o usuário só veria os
