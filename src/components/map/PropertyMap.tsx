@@ -62,6 +62,10 @@ interface Props {
   onNeighborPick?: (info: { car: string; area: number; municipio: string; uf: string }) => void;
   /** Disparado quando os confrontantes diretos (TOUCHES) são detectados automaticamente após o carregamento do CAR principal. */
   onNeighborsDetected?: (neighbors: Array<{ car: string; area: number; municipio: string; uf: string }>) => void;
+  /** Conjunto de CARs marcados no painel de seleção — usado pra destacar polígonos selecionados no mapa. */
+  selectedNeighbors?: Set<string>;
+  /** Alterna a marcação de um CAR no painel ao clicar no botão "Marcar/Desmarcar do painel" do popup. */
+  onNeighborToggle?: (car: string) => void;
 }
 
 const BASE_LAYER_KEY = 'geodoc.map.baseLayer';
