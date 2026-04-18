@@ -245,7 +245,11 @@ export default function NeighborsList({ processId, clientName, processNumber, ca
     }));
   };
 
-  /** Faz upload do PDF da matrícula do confrontante e roda a IA. */
+  /**
+   * Faz upload do PDF da matrícula do confrontante e roda a IA.
+   * Se houver `editingId`, persiste imediatamente no registro de process_neighbors
+   * para que a aba Confrontantes reflita os dados sem precisar clicar em "Salvar".
+   */
   const analyzeMatricula = async (file: File) => {
     if (!user) return;
     setAnalyzing(true);
@@ -261,27 +265,56 @@ export default function NeighborsList({ processId, clientName, processNumber, ca
       if (data?.error) throw new Error(data.error);
 
       const owner = (data?.proprietarios_atuais ?? [])[0] ?? {};
-      setForm(f => ({
-        ...f,
-        full_name: owner.nome || f.full_name,
-        cpf_cnpj: owner.cpf || f.cpf_cnpj,
-        rg: owner.rg || f.rg,
-        rg_issuer: owner.rg_orgao || f.rg_issuer,
-        marital_status: mapMaritalStatus(owner.estado_civil) || f.marital_status,
-        marriage_regime: mapRegime(owner.regime_casamento) || f.marriage_regime,
-        spouse_name: owner.conjuge_nome || f.spouse_name,
-        spouse_cpf: owner.conjuge_cpf || f.spouse_cpf,
-        registration_number: data?.matricula_numero || f.registration_number,
-        ccir_number: data?.ccir || f.ccir_number,
-        registry_office: data?.cartorio || f.registry_office,
-        property_denomination: data?.denominacao_imovel || f.property_denomination,
-        extracted_data: data,
-      }));
+      const analyzedAt = new Date().toISOString();
+      const mergedExtracted = { ...(form.extracted_data ?? {}), ...data, _analyzed_at: analyzedAt, _pdf_path: filePath };
+
+      const next: MiniForm = {
+        ...form,
+        full_name: owner.nome || form.full_name,
+        cpf_cnpj: owner.cpf || form.cpf_cnpj,
+        rg: owner.rg || form.rg,
+        rg_issuer: owner.rg_orgao || form.rg_issuer,
+        marital_status: mapMaritalStatus(owner.estado_civil) || form.marital_status,
+        marriage_regime: mapRegime(owner.regime_casamento) || form.marriage_regime,
+        spouse_name: owner.conjuge_nome || form.spouse_name,
+        spouse_cpf: owner.conjuge_cpf || form.spouse_cpf,
+        registration_number: data?.matricula_numero || form.registration_number,
+        ccir_number: data?.ccir || form.ccir_number,
+        registry_office: data?.cartorio || form.registry_office,
+        property_denomination: data?.denominacao_imovel || form.property_denomination,
+        extracted_data: mergedExtracted,
+      };
+      setForm(next);
+
+      // ITEM 2: persistir imediatamente quando estiver editando registro existente.
+      // Garante que a aba Confrontantes reflita os dados sem precisar clicar em "Salvar".
+      if (editingId) {
+        const phones = next.phone.trim() ? [{ number: next.phone.trim(), whatsapp: true }] : [];
+        const dbPayload: any = {
+          full_name: next.full_name || null,
+          cpf_cnpj: next.cpf_cnpj || null,
+          rg: next.rg || null,
+          rg_issuer: next.rg_issuer || null,
+          marital_status: next.marital_status || null,
+          marriage_regime: next.marriage_regime || null,
+          spouse_name: next.spouse_name || null,
+          spouse_cpf: next.spouse_cpf || null,
+          registration_number: next.registration_number || null,
+          ccir_number: next.ccir_number || null,
+          registry_office: next.registry_office || null,
+          property_denomination: next.property_denomination || null,
+          extracted_data: mergedExtracted,
+        };
+        if (phones.length) dbPayload.phones = phones;
+        const { error: upErr2 } = await supabase.from('process_neighbors').update(dbPayload).eq('id', editingId);
+        if (upErr2) throw upErr2;
+        qc.invalidateQueries({ queryKey: ['neighbors', processId] });
+      }
 
       const ownersFound = (data?.proprietarios_atuais ?? []).length;
       toast({
         title: 'Matrícula analisada',
-        description: `${ownersFound} proprietário(s) extraído(s). Revise e salve.`,
+        description: `${ownersFound} proprietário(s) extraído(s).${editingId ? ' Dados sincronizados com a aba Confrontantes.' : ' Revise e salve.'}`,
       });
     } catch (e: any) {
       toast({ title: 'Erro na análise', description: e.message, variant: 'destructive' });
