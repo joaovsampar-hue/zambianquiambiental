@@ -17,7 +17,8 @@ import {
   sicarLayerForUF,
   parseCarUF,
   fetchCarPolygon,
-  fetchNeighborsInBbox,
+  fetchTouchingNeighbors,
+  fetchFeatureAtPoint,
   type SicarUF,
 } from '@/lib/sicar';
 
