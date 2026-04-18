@@ -57,12 +57,14 @@ interface Props {
   carNumber?: string;
   /** Disparado quando o usuário busca um CAR válido pela aba CAR e o polígono é carregado com sucesso. */
   onCarLoaded?: (car: string) => void;
+  /** Disparado quando o usuário clica em "Adicionar como confrontante" no popup de um imóvel identificado pelo clique. */
+  onNeighborPick?: (info: { car: string; area: number; municipio: string; uf: string }) => void;
 }
 
 const BASE_LAYER_KEY = 'geodoc.map.baseLayer';
 
 const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
-  { initialData, onChange, height = '500px', readOnly, carNumber, onCarLoaded },
+  { initialData, onChange, height = '500px', readOnly, carNumber, onCarLoaded, onNeighborPick },
   ref,
 ) {
   const mapRef = useRef<HTMLDivElement>(null);
@@ -396,23 +398,39 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
         );
         return;
       }
+      const loadId = `sicar-load-${feat.cod_imovel}`;
+      const neighborId = `sicar-neighbor-${feat.cod_imovel}`;
+      const showNeighborBtn = !!onNeighborPick;
       const html = `
-        <div class="text-xs space-y-1">
+        <div class="text-xs space-y-1.5" style="min-width:220px">
           <div class="font-semibold">${feat.tipo_imovel || 'Imóvel SICAR'}</div>
           <div><span class="text-muted-foreground">CAR:</span> <span class="font-mono break-all">${feat.cod_imovel}</span></div>
           <div><span class="text-muted-foreground">Área total:</span> ${feat.area.toFixed(2)} ha</div>
           <div><span class="text-muted-foreground">Município:</span> ${feat.municipio}/${feat.uf}</div>
-          <button id="sicar-load-${feat.cod_imovel}" class="mt-1 px-2 py-1 rounded bg-primary text-primary-foreground text-xs">Carregar este imóvel</button>
+          <div class="flex flex-wrap gap-1.5 pt-1">
+            <button id="${loadId}" class="px-2 py-1 rounded bg-primary text-primary-foreground text-xs">Carregar este imóvel</button>
+            ${showNeighborBtn ? `<button id="${neighborId}" class="px-2 py-1 rounded bg-secondary text-secondary-foreground text-xs border border-border">+ Confrontante</button>` : ''}
+          </div>
         </div>`;
       loadingPopup.setContent(html);
       // Liga o botão depois que o popup é renderizado.
       setTimeout(() => {
-        const btn = document.getElementById(`sicar-load-${feat.cod_imovel}`);
-        btn?.addEventListener('click', () => {
+        document.getElementById(loadId)?.addEventListener('click', () => {
           loadingPopup.close();
           setCarInput(feat.cod_imovel);
           loadCar(feat.cod_imovel);
         });
+        if (showNeighborBtn) {
+          document.getElementById(neighborId)?.addEventListener('click', () => {
+            loadingPopup.close();
+            onNeighborPick?.({
+              car: feat.cod_imovel,
+              area: feat.area,
+              municipio: feat.municipio,
+              uf: feat.uf,
+            });
+          });
+        }
       }, 0);
     } finally {
       setIdentifying(false);
