@@ -10,14 +10,43 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { Plus, MapPin, FileSearch, ArrowLeft } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import DeleteButton from '@/components/DeleteButton';
 
 export default function ClientDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ denomination: '', registration_number: '', municipality: '', state: '', total_area_ha: '' });
+
+  const deleteProperty = useMutation({
+    mutationFn: async (propertyId: string) => {
+      await supabase.from('analyses').delete().eq('property_id', propertyId);
+      const { error } = await supabase.from('properties').delete().eq('id', propertyId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['properties', id] });
+      toast({ title: 'Imóvel excluído' });
+    },
+    onError: (e: any) => toast({ title: 'Erro', description: e.message, variant: 'destructive' }),
+  });
+
+  const deleteClient = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from('clients').delete().eq('id', id!);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['clients'] });
+      toast({ title: 'Cliente excluído' });
+      navigate('/clients');
+    },
+    onError: (e: any) => toast({ title: 'Erro', description: e.message, variant: 'destructive' }),
+  });
 
   const { data: client } = useQuery({
     queryKey: ['client', id],
@@ -60,12 +89,22 @@ export default function ClientDetailPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="flex items-center gap-3">
-        <Link to="/clients"><Button variant="ghost" size="icon"><ArrowLeft className="w-5 h-5" /></Button></Link>
-        <div>
-          <h1 className="text-2xl font-heading font-bold">{client.name}</h1>
-          <p className="text-muted-foreground text-sm">{client.cpf_cnpj} · {client.email}</p>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <Link to="/clients"><Button variant="ghost" size="icon"><ArrowLeft className="w-5 h-5" /></Button></Link>
+          <div>
+            <h1 className="text-2xl font-heading font-bold">{client.name}</h1>
+            <p className="text-muted-foreground text-sm">{client.cpf_cnpj} · {client.email}</p>
+          </div>
         </div>
+        <DeleteButton
+          variant="outline"
+          label="Excluir cliente"
+          title="Excluir cliente?"
+          description={`O cliente "${client.name}" e todos os imóveis e análises vinculados serão removidos.`}
+          onConfirm={async () => { await deleteClient.mutateAsync(); }}
+          stopPropagation={false}
+        />
       </div>
 
       <div className="flex items-center justify-between">
@@ -128,6 +167,12 @@ export default function ClientDetailPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground">{p.analyses?.length ?? 0} análises</span>
+                    <DeleteButton
+                      iconOnly
+                      title="Excluir imóvel?"
+                      description={`O imóvel "${p.denomination}" e suas análises serão removidos.`}
+                      onConfirm={async () => { await deleteProperty.mutateAsync(p.id); }}
+                    />
                   </div>
                 </CardContent>
               </Card>
