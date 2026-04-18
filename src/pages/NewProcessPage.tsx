@@ -120,33 +120,7 @@ export default function NewProcessPage() {
     onError: (e: any) => toast({ title: 'Erro', description: e.message, variant: 'destructive' }),
   });
 
-  const [locatingCar, setLocatingCar] = useState(false);
-  const handleLocateCAR = async () => {
-    if (!carClean) {
-      toast({ title: 'Digite o número do CAR primeiro', variant: 'destructive' });
-      return;
-    }
-    if (!isValidCAR(carClean)) {
-      toast({ title: 'CAR inválido', description: 'Verifique o formato', variant: 'destructive' });
-      return;
-    }
-    if (!mapHandleRef.current) return;
-    // Centraliza na UF imediatamente (feedback rápido) e dispara busca WFS no SICAR.
-    const uf = carUF(carClean);
-    if (uf) mapHandleRef.current.flyToUF(uf);
-    setLocatingCar(true);
-    try {
-      const ok = await mapHandleRef.current.loadCarPolygon(carClean);
-      if (!ok) {
-        // Toast de erro já é exibido pelo PropertyMap.loadCar; aqui só logamos contexto.
-        return;
-      }
-    } finally {
-      setLocatingCar(false);
-    }
-  };
-
-  const canStep2 = !!clientId && carOk;
+  const canStep2 = !!clientId;
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 animate-fade-in">
