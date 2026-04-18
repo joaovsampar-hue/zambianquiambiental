@@ -246,14 +246,37 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
   pdf.rect(MARGIN, MARGIN, PAGE_W - MARGIN * 2, PAGE_H - MARGIN * 2);
 
   // ===== Mapa (esquerda) — basemap + polígonos vetoriais =====
-  pdf.addImage(pngDataUrl, 'PNG', MARGIN, MARGIN, MAP_W, MAP_H, undefined, 'FAST');
+  // Recorta o PNG capturado ao aspect ratio do slot do PDF (sem distorcer).
+  // Mantém o centro do mapa visível — o que o usuário vê na tela é o que entra
+  // no PDF, só com as bordas (lateral ou topo/base) cortadas.
+  const domRect = leafletEl.getBoundingClientRect();
+  const targetAspect = MAP_W / MAP_H;
+  const sourceAspect = domRect.width / domRect.height;
+  let cropSrcX = 0, cropSrcY = 0, cropSrcW = domRect.width, cropSrcH = domRect.height;
+  if (sourceAspect > targetAspect) {
+    // imagem mais larga → corta as laterais
+    cropSrcW = domRect.height * targetAspect;
+    cropSrcX = (domRect.width - cropSrcW) / 2;
+  } else {
+    // imagem mais alta → corta topo/base
+    cropSrcH = domRect.width / targetAspect;
+    cropSrcY = (domRect.height - cropSrcH) / 2;
+  }
+
+  // Faz o crop do PNG via canvas, em px reais (pixelRatio=2 do toPng).
+  const croppedPng = await cropPngToAspect(pngDataUrl, cropSrcX, cropSrcY, cropSrcW, cropSrcH, 2);
+  pdf.addImage(croppedPng, 'PNG', MARGIN, MARGIN, MAP_W, MAP_H, undefined, 'FAST');
+
+  const cropMeta = {
+    srcX: cropSrcX, srcY: cropSrcY, srcW: cropSrcW, srcH: cropSrcH,
+    domW: domRect.width, domH: domRect.height,
+  };
 
   // Desenha vizinhos vetorialmente (vermelho) — RECORTADOS ao viewport.
   if (neighborsFc) {
-    const proj = makeProjector(leafletMap, leafletEl, MARGIN, MARGIN, MAP_W, MAP_H);
+    const proj = makeProjector(leafletMap, leafletEl, MARGIN, MARGIN, MAP_W, MAP_H, cropMeta);
     const mainCar = (mainFeature?.properties as any)?.cod_imovel;
     neighborsFc.features?.forEach(feat => {
-      // Pula a feição principal se ela aparecer na coleção de vizinhos.
       const car = (feat.properties as any)?.cod_imovel;
       if (mainCar && car && car === mainCar) return;
       const clipped = clipToViewport(feat, leafletMap);
@@ -267,9 +290,9 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
     });
   }
 
-  // Desenha o imóvel em estudo (verde, traço grosso) — também recortado.
+  // Desenha o imóvel em estudo (verde, traço grosso).
   if (mainFeature) {
-    const proj = makeProjector(leafletMap, leafletEl, MARGIN, MARGIN, MAP_W, MAP_H);
+    const proj = makeProjector(leafletMap, leafletEl, MARGIN, MARGIN, MAP_W, MAP_H, cropMeta);
     const clipped = clipToViewport(mainFeature, leafletMap) ?? mainFeature;
     drawGeoFeature(pdf, clipped, proj, {
       stroke: [40, 130, 60],
