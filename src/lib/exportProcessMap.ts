@@ -101,8 +101,8 @@ async function captureBasemap(map: L.Map, container: HTMLElement): Promise<Basem
       // Posição do canto superior esquerdo do tile no container DOM
       const tileWorldX = x * tileSize;
       const tileWorldY = y * tileSize;
-      const px = tileWorldX - mapPaneOriginPixel.x;
-      const py = tileWorldY - mapPaneOriginPixel.y;
+      const px = tileWorldX - originX;
+      const py = tileWorldY - originY;
       try {
         ctx.drawImage(img, px, py, tileSize, tileSize);
       } catch {
