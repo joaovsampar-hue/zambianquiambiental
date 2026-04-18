@@ -268,8 +268,8 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
 
     map.on('click', async (e: L.LeafletMouseEvent) => {
       setClickedCoord({ lat: e.latlng.lat, lng: e.latlng.lng });
-      // Identifica em paralelo no SICAR (CAR) e nas UFs SIGEF ativas. Não bloqueia.
-      void identifySigefAtPoint(e.latlng.lat, e.latlng.lng);
+      // O popup combinado (CAR + SIGEF) é montado dentro de identifyAtPoint —
+      // ele dispara a consulta SIGEF em paralelo e mescla o HTML quando chega.
       await identifyRef.current(e.latlng.lat, e.latlng.lng);
     });
 
@@ -354,18 +354,17 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     onChange(dataRef.current);
   };
 
-  // Identifica a parcela SIGEF no ponto clicado, via WMS GetFeatureInfo no proxy.
-  // Roda em paralelo para todas as UFs SIGEF que o usuário deixou ativas — na
-  // prática só 1 ou 2 estão ligadas, então o custo é baixo. A primeira UF que
-  // retornar uma feature válida ganha; as demais são descartadas.
-  const identifySigefAtPoint = async (lat: number, lng: number) => {
+  // Consulta as parcelas SIGEF no ponto clicado, via WMS GetFeatureInfo no proxy.
+  // Roda em paralelo para todas as UFs SIGEF ativas e devolve o HTML do popup
+  // (ou null se não há certificação no ponto). Não abre popup próprio — o
+  // chamador (`identifyAtPoint`) mescla com o bloco do CAR.
+  const identifySigefAtPoint = async (lat: number, lng: number): Promise<string | null> => {
     const map = mapInstance.current;
-    const lg = sigefInfoLayer.current;
-    if (!map || !lg || sigefActiveUFs.current.size === 0) return;
+    if (!map || sigefActiveUFs.current.size === 0) return null;
     const token = ++sigefIdentifyToken.current;
 
-    // Monta um BBOX 1×1 pixel ao redor do ponto — o GetFeatureInfo precisa de
-    // um BBOX coerente com WIDTH/HEIGHT/X/Y para o MapServer interpretar.
+    // BBOX 1×1 pixel ao redor do ponto — exigência do GetFeatureInfo (BBOX
+    // tem que ser coerente com WIDTH/HEIGHT/X/Y para o MapServer interpretar).
     const point = map.latLngToContainerPoint([lat, lng]);
     const sw = map.containerPointToLatLng([point.x - 1, point.y + 1]);
     const ne = map.containerPointToLatLng([point.x + 1, point.y - 1]);
@@ -398,17 +397,16 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     };
 
     const results = await Promise.all([...sigefActiveUFs.current].map(tryUF));
-    if (token !== sigefIdentifyToken.current) return; // stale
+    if (token !== sigefIdentifyToken.current) return null; // stale (outro clique chegou)
     const hit = results.find(r => r !== null) as { uf: SigefUF; html: string } | undefined;
-    if (!hit) return;
+    if (!hit) return null;
 
     const info = parseSigefInfoHtml(hit.html);
-    if (!info) return;
+    if (!info) return null;
 
-    lg.clearLayers();
-    const html = `
-      <div class="text-xs space-y-1.5" style="min-width:260px">
-        <div class="font-semibold" style="color:hsl(28,90%,40%)">Parcela SIGEF (INCRA) — ${hit.uf}</div>
+    return `
+      <div class="pt-2 mt-2 border-t border-border space-y-1.5">
+        <div class="font-semibold" style="color:hsl(28,90%,40%)">✓ Parcela SIGEF (INCRA) — ${hit.uf}</div>
         ${info.nome_area ? `<div><span class="text-muted-foreground">Nome:</span> ${info.nome_area}</div>` : ''}
         ${info.situacao ? `<div><span class="text-muted-foreground">Situação:</span> ${info.situacao}</div>` : ''}
         ${info.status ? `<div><span class="text-muted-foreground">Status:</span> ${info.status}</div>` : ''}
@@ -417,12 +415,8 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
         ${info.rt ? `<div><span class="text-muted-foreground">Resp. técnico:</span> ${info.rt}</div>` : ''}
         ${info.art ? `<div><span class="text-muted-foreground">ART:</span> ${info.art}</div>` : ''}
         ${info.data_aprovacao ? `<div><span class="text-muted-foreground">Aprovação:</span> ${info.data_aprovacao}</div>` : ''}
-        ${info.parcela_codigo ? `<div class="pt-1 text-[11px] text-muted-foreground italic">Cód. parcela: ${info.parcela_codigo}</div>` : ''}
+        ${info.parcela_codigo ? `<div class="text-[11px] text-muted-foreground italic">Cód. parcela: ${info.parcela_codigo}</div>` : ''}
       </div>`;
-    L.popup({ closeButton: true, autoPan: true })
-      .setLatLng([lat, lng])
-      .setContent(html)
-      .openOn(map);
   };
 
   const renderGeometry = (d: MapData) => {
@@ -678,29 +672,48 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     }
 
     setIdentifying(true);
-    const loadingPopup = L.popup({ closeButton: false, autoClose: false })
+    const loadingPopup = L.popup({ closeButton: false, autoClose: false, maxWidth: 340 })
       .setLatLng([lat, lng])
       .setContent('<div class="text-xs">Consultando SICAR…</div>')
       .openOn(map);
 
+    // SIGEF roda em paralelo — quando o popup do CAR estiver pronto,
+    // anexamos o bloco SIGEF embaixo (ou nada, se não houver certificação).
+    const sigefPromise = identifySigefAtPoint(lat, lng);
+
     try {
       const feat = await fetchFeatureAtPoint(uf, lat, lng);
+      const sigefHtml = await sigefPromise;
+
       if (!feat) {
-        loadingPopup.setContent(
-          '<div class="text-xs">Nenhum imóvel SICAR neste ponto.</div>',
-        );
+        // Sem CAR no ponto, mas pode haver SIGEF certificado — mostra só ele.
+        if (sigefHtml) {
+          loadingPopup.setContent(
+            `<div class="text-xs space-y-1.5" style="min-width:260px">
+               <div class="text-muted-foreground italic">Nenhum imóvel SICAR neste ponto.</div>
+               ${sigefHtml}
+             </div>`,
+          );
+          // Mostra o botão de fechar agora que o conteúdo está estável.
+          (loadingPopup.options as any).closeButton = true;
+        } else {
+          loadingPopup.setContent(
+            '<div class="text-xs">Nenhum imóvel SICAR ou SIGEF neste ponto.</div>',
+          );
+        }
         return;
       }
       const loadId = `sicar-load-${feat.cod_imovel}`;
       const neighborId = `sicar-neighbor-${feat.cod_imovel}`;
       const showNeighborBtn = !!onNeighborPick;
       const html = `
-        <div class="text-xs space-y-1.5" style="min-width:240px">
+        <div class="text-xs space-y-1.5" style="min-width:260px">
           <div class="font-semibold">${feat.tipo_imovel || 'Imóvel SICAR'}</div>
           <div><span class="text-muted-foreground">CAR:</span> <span class="font-mono break-all">${feat.cod_imovel}</span></div>
           <div><span class="text-muted-foreground">Área total:</span> ${feat.area.toFixed(2)} ha</div>
           <div><span class="text-muted-foreground">Município:</span> ${feat.municipio}/${feat.uf}</div>
-          <div class="flex flex-wrap gap-1.5 pt-1">
+          ${sigefHtml ?? '<div class="pt-1 text-[11px] text-muted-foreground italic">Sem certificação SIGEF neste ponto.</div>'}
+          <div class="flex flex-wrap gap-1.5 pt-2">
             <button id="${loadId}" class="px-2 py-1 rounded bg-primary text-primary-foreground text-xs">Carregar este imóvel</button>
             ${showNeighborBtn ? `<button id="${neighborId}" class="px-2 py-1 rounded bg-secondary text-secondary-foreground text-xs border border-border">+ Listar como confrontante</button>` : ''}
           </div>
