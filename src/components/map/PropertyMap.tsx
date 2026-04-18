@@ -237,23 +237,32 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     // ===== OVERLAYS SICAR/SIGEF (escopados à UF do imóvel) =====
     // Antes carregávamos as 27 UFs em paralelo — virou tela travada por 5–10s
     // a cada toggle. Agora detectamos a UF a partir do número do CAR (ex: "SP")
-    // e instanciamos UMA única camada WMS por serviço. O LayerGroup vazio é
-    // recriado dinamicamente quando o CAR muda (ver `useEffect` mais abaixo).
-    const overlays: Record<string, L.Layer> = {};
+    // e instanciamos UMA única camada WMS por serviço.
+    //
+    // ITEM 5: ao abrir o mapa, somente a camada SICAR fica ativa por padrão.
+    // SIGEF e Confrontantes ficam disponíveis no controle de camadas mas começam
+    // DESLIGADOS — o usuário ativa quando precisar.
     const sicarGroup = L.layerGroup();
     const sigefGroup = L.layerGroup();
-    overlays['SICAR'] = sicarGroup;
-    overlays['SIGEF/INCRA'] = sigefGroup;
+    const neighborsGroup = L.layerGroup();
     sigefWmsByUFRef.current = new Map();
     sicarGroupRef.current = sicarGroup;
     sigefGroupRef.current = sigefGroup;
+
+    layerGroup.current = L.layerGroup().addTo(map); // imóvel principal — sempre visível
+    neighborsLayer.current = neighborsGroup;        // confrontantes — começa desligado (item 5)
+    sicarGroup.addTo(map);                          // SICAR — único overlay ativo por padrão
+
+    const overlays: Record<string, L.Layer> = {
+      'SICAR': sicarGroup,
+      'SIGEF/INCRA': sigefGroup,
+      'Confrontantes detectados': neighborsGroup,
+    };
 
     L.control
       .layers(bases, overlays, { position: 'topright', collapsed: true })
       .addTo(map);
 
-    layerGroup.current = L.layerGroup().addTo(map);
-    neighborsLayer.current = L.layerGroup().addTo(map);
     // Camada de popups dos cliques SIGEF — separada para limpar facilmente.
     sigefInfoLayer.current = L.layerGroup().addTo(map);
 
