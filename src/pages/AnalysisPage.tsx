@@ -183,6 +183,14 @@ export default function AnalysisPage() {
             <Save className="w-4 h-4 mr-2" />
             {saveMutation.isPending ? 'Salvando...' : 'Salvar Análise'}
           </Button>
+          <DeleteButton
+            variant="outline"
+            label="Excluir"
+            title="Excluir análise?"
+            description="A análise da matrícula será removida permanentemente."
+            onConfirm={async () => { await deleteAnalysis.mutateAsync(); }}
+            stopPropagation={false}
+          />
         </div>
       </div>
 
