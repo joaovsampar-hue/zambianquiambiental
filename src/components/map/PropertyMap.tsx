@@ -354,18 +354,17 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     onChange(dataRef.current);
   };
 
-  // Identifica a parcela SIGEF no ponto clicado, via WMS GetFeatureInfo no proxy.
-  // Roda em paralelo para todas as UFs SIGEF que o usuário deixou ativas — na
-  // prática só 1 ou 2 estão ligadas, então o custo é baixo. A primeira UF que
-  // retornar uma feature válida ganha; as demais são descartadas.
-  const identifySigefAtPoint = async (lat: number, lng: number) => {
+  // Consulta as parcelas SIGEF no ponto clicado, via WMS GetFeatureInfo no proxy.
+  // Roda em paralelo para todas as UFs SIGEF ativas e devolve o HTML do popup
+  // (ou null se não há certificação no ponto). Não abre popup próprio — o
+  // chamador (`identifyAtPoint`) mescla com o bloco do CAR.
+  const identifySigefAtPoint = async (lat: number, lng: number): Promise<string | null> => {
     const map = mapInstance.current;
-    const lg = sigefInfoLayer.current;
-    if (!map || !lg || sigefActiveUFs.current.size === 0) return;
+    if (!map || sigefActiveUFs.current.size === 0) return null;
     const token = ++sigefIdentifyToken.current;
 
-    // Monta um BBOX 1×1 pixel ao redor do ponto — o GetFeatureInfo precisa de
-    // um BBOX coerente com WIDTH/HEIGHT/X/Y para o MapServer interpretar.
+    // BBOX 1×1 pixel ao redor do ponto — exigência do GetFeatureInfo (BBOX
+    // tem que ser coerente com WIDTH/HEIGHT/X/Y para o MapServer interpretar).
     const point = map.latLngToContainerPoint([lat, lng]);
     const sw = map.containerPointToLatLng([point.x - 1, point.y + 1]);
     const ne = map.containerPointToLatLng([point.x + 1, point.y - 1]);
@@ -398,17 +397,16 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     };
 
     const results = await Promise.all([...sigefActiveUFs.current].map(tryUF));
-    if (token !== sigefIdentifyToken.current) return; // stale
+    if (token !== sigefIdentifyToken.current) return null; // stale (outro clique chegou)
     const hit = results.find(r => r !== null) as { uf: SigefUF; html: string } | undefined;
-    if (!hit) return;
+    if (!hit) return null;
 
     const info = parseSigefInfoHtml(hit.html);
-    if (!info) return;
+    if (!info) return null;
 
-    lg.clearLayers();
-    const html = `
-      <div class="text-xs space-y-1.5" style="min-width:260px">
-        <div class="font-semibold" style="color:hsl(28,90%,40%)">Parcela SIGEF (INCRA) — ${hit.uf}</div>
+    return `
+      <div class="pt-2 mt-2 border-t border-border space-y-1.5">
+        <div class="font-semibold" style="color:hsl(28,90%,40%)">✓ Parcela SIGEF (INCRA) — ${hit.uf}</div>
         ${info.nome_area ? `<div><span class="text-muted-foreground">Nome:</span> ${info.nome_area}</div>` : ''}
         ${info.situacao ? `<div><span class="text-muted-foreground">Situação:</span> ${info.situacao}</div>` : ''}
         ${info.status ? `<div><span class="text-muted-foreground">Status:</span> ${info.status}</div>` : ''}
@@ -417,12 +415,8 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
         ${info.rt ? `<div><span class="text-muted-foreground">Resp. técnico:</span> ${info.rt}</div>` : ''}
         ${info.art ? `<div><span class="text-muted-foreground">ART:</span> ${info.art}</div>` : ''}
         ${info.data_aprovacao ? `<div><span class="text-muted-foreground">Aprovação:</span> ${info.data_aprovacao}</div>` : ''}
-        ${info.parcela_codigo ? `<div class="pt-1 text-[11px] text-muted-foreground italic">Cód. parcela: ${info.parcela_codigo}</div>` : ''}
+        ${info.parcela_codigo ? `<div class="text-[11px] text-muted-foreground italic">Cód. parcela: ${info.parcela_codigo}</div>` : ''}
       </div>`;
-    L.popup({ closeButton: true, autoPan: true })
-      .setLatLng([lat, lng])
-      .setContent(html)
-      .openOn(map);
   };
 
   const renderGeometry = (d: MapData) => {
