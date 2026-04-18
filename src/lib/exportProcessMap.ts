@@ -1,60 +1,40 @@
 // Exporta o mapa do processo em PDF A4 paisagem com layout cartográfico clássico.
 //
-// Estratégia (v2):
-// - Captura o basemap (satélite/ruas) via html-to-image, mas ESCONDE as camadas
-//   WMS SIGEF/SICAR antes da captura (elas geram hachura raster que polui).
+// Estratégia (v3 — correções de distorção):
+// - Captura o basemap (satélite/ruas) via html-to-image, ESCONDENDO as camadas
+//   WMS SIGEF/SICAR antes da captura (com 2x rAF + delay para garantir reflow).
 // - Por cima da imagem do basemap, desenha os polígonos vetorialmente direto no
-//   jsPDF — projetando lat/lng → pixel via Web Mercator + bounds do mapa atual:
-//     * Vizinhos detectados (azul claro)
-//     * Imóvel principal (verde, hachurado, com destaque no topo)
-// - Painel lateral: logo da empresa (carregada do banco), título dinâmico
-//   (formato "Análise Prévia - Imóvel - Município/UF"), informações cartográficas,
-//   legenda, escala gráfica e bloco de assinatura do RT.
-//
-// Notas:
-// - A escala "1:X" exibida é estimada via map.getZoom() + latitude (Web Mercator).
-// - Se a Inter não baixar (cache CDN), fallback silencioso pra helvetica.
-// - Se não houver logo cadastrada, usa o nome "GeoConfront" como placeholder.
+//   jsPDF — projetando lat/lng → pixel via Leaflet `latLngToContainerPoint`.
+// - **Recorta** polígonos vizinhos ao bounds do mapa visível antes de desenhar
+//   (evita "faixas diagonais" de polígonos que se estendem fora do viewport).
+// - Usa `pdf.text(..., {align: 'center'})` nativo (sem getTextWidth manual) →
+//   sem letter-spacing fantasma quando a fonte cai pra helvetica.
+// - Painel lateral idêntico ao modelo Zambianqui: logo, título, datum, escala
+//   gráfica, legenda, assinatura.
 
 import { toPng } from 'html-to-image';
 import jsPDF from 'jspdf';
 import L from 'leaflet';
+import bboxClip from '@turf/bbox-clip';
 import { embedInterFont } from './pdfFonts';
 
 export interface ExportMapOptions {
-  /** Elemento que contém o `.leaflet-container` (ou o container direto). */
   mapContainer: HTMLElement;
-  /** Mapa Leaflet ativo — usado pra ler zoom/center/escala. */
   leafletMap: L.Map;
-  /** Polígono do imóvel em estudo (destaque verde). */
   mainFeature: GeoJSON.Feature | null;
-  /** Vizinhos detectados (azul claro). */
   neighborsFc: GeoJSON.FeatureCollection | null;
-  /** Função opcional para esconder/mostrar camadas WMS durante a captura. */
   setOverlayTilesVisible?: (visible: boolean) => void;
-  /** Título do mapa (ex.: "Análise Prévia - Sítio Saltinho - Adamantina/SP"). */
   title: string;
-  /** Nome do cliente (aparece no rodapé do painel se quiser). */
   clientName?: string;
-  /** Profissional responsável (aparece na assinatura). */
   responsibleName?: string;
-  /** Cargo (ex.: "Engenheiro Agrimensor"). */
   responsibleRole?: string;
-  /** Tipo+número do registro (ex.: "CREA-SP 5070123456"). */
   responsibleRegistry?: string;
-  /** URL pública (PNG transparente) da assinatura digitalizada do RT. */
   responsibleSignatureUrl?: string;
-  /** Quem produziu (assistente técnico). */
   producedBy?: string;
-  /** Nome da empresa (default: "GeoConfront"). */
   companyName?: string;
-  /** Subtítulo da empresa. */
   companyTagline?: string;
-  /** URL pública do logo da empresa (PNG/JPG). */
   companyLogoUrl?: string;
-  /** Nome do arquivo (sem extensão). */
   fileName?: string;
-  /** Área em hectares do imóvel principal — exibida sobre o mapa. */
   areaHa?: number;
 }
 
@@ -74,7 +54,6 @@ function utmZoneFromLng(lng: number): number {
   return Math.floor((lng + 180) / 6) + 1;
 }
 
-// Carrega imagem de URL pública como dataURL — necessário pra jsPDF.addImage.
 async function urlToDataUrl(url: string): Promise<string | null> {
   try {
     const resp = await fetch(url, { mode: 'cors' });
@@ -92,9 +71,6 @@ async function urlToDataUrl(url: string): Promise<string | null> {
 }
 
 // ===== Projeção lat/lng → coordenadas no PDF =====
-// O mapa Leaflet projeta em Web Mercator. Para desenhar polígonos no jsPDF
-// alinhados com a captura, usamos `map.latLngToContainerPoint` (que retorna px
-// dentro do container DOM) e mapeamos para mm dentro do retângulo do mapa no PDF.
 function makeProjector(map: L.Map, mapDom: HTMLElement, pdfX: number, pdfY: number, pdfW: number, pdfH: number) {
   const rect = mapDom.getBoundingClientRect();
   const scaleX = pdfW / rect.width;
@@ -107,7 +83,61 @@ function makeProjector(map: L.Map, mapDom: HTMLElement, pdfX: number, pdfY: numb
 
 type Projector = ReturnType<typeof makeProjector>;
 
-// Desenha um polígono GeoJSON (Polygon ou MultiPolygon) no jsPDF.
+// ===== Recorte de feições ao viewport =====
+// Usa turf.bboxClip para cortar polígonos que extrapolam o mapa visível.
+// Isso evita o bug "faixas diagonais" — polígonos vizinhos enormes que ocupam
+// dezenas de km e atravessam o viewport.
+function clipToViewport(feature: GeoJSON.Feature, map: L.Map): GeoJSON.Feature | null {
+  try {
+    const bounds = map.getBounds();
+    // Expande 5% pra evitar clip duro nas bordas.
+    const padded = bounds.pad(0.05);
+    const bbox: [number, number, number, number] = [
+      padded.getWest(), padded.getSouth(), padded.getEast(), padded.getNorth(),
+    ];
+    const clipped = bboxClip(feature as any, bbox);
+    const g = clipped.geometry;
+    if (!g) return null;
+    if (g.type === 'Polygon' && g.coordinates.length === 0) return null;
+    if (g.type === 'MultiPolygon' && g.coordinates.length === 0) return null;
+    return clipped as any;
+  } catch {
+    return feature;
+  }
+}
+
+// Desenha um anel (ring) usando moveTo/lineTo absolutos via jsPDF internal API.
+// Evita pdf.lines() que tem bugs com fill+stroke duplicado em rings complexos.
+function drawRingAbsolute(
+  pdf: jsPDF,
+  ringPts: Array<[number, number]>,
+  style: 'F' | 'S' | 'B',
+) {
+  if (ringPts.length < 3) return;
+  // jsPDF expõe métodos internos para path absoluto.
+  const anyPdf = pdf as any;
+  // Inicia o path no primeiro ponto.
+  anyPdf.internal.write(`${(ringPts[0][0]).toFixed(2)} ${pdf.internal.pageSize.getHeight() - ringPts[0][1] | 0} m`);
+  // Versão segura: usar pdf.lines com deltas, mas em uma SÓ chamada por ring,
+  // e usando 'B' (both fill+stroke) num único pass — sem duplicar.
+}
+
+// Versão simplificada e correta usando pdf.lines com UM único pass.
+function drawRingSimple(
+  pdf: jsPDF,
+  pts: Array<[number, number]>,
+  style: 'F' | 'S' | 'B',
+) {
+  if (pts.length < 2) return;
+  const lines: [number, number][] = [];
+  for (let i = 1; i < pts.length; i++) {
+    lines.push([pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]]);
+  }
+  // Um único pdf.lines() com style 'B' faz fill + stroke num só path → sem
+  // artefatos de rings sobrescritos.
+  pdf.lines(lines, pts[0][0], pts[0][1], [1, 1], style, true);
+}
+
 function drawGeoFeature(
   pdf: jsPDF,
   feature: GeoJSON.Feature,
@@ -117,38 +147,38 @@ function drawGeoFeature(
     strokeWidth: number;
     fill?: [number, number, number] | null;
     fillOpacity?: number;
-    hatch?: boolean;
   },
 ) {
   const geom = feature.geometry;
   if (!geom) return;
 
+  pdf.setDrawColor(style.stroke[0], style.stroke[1], style.stroke[2]);
+  pdf.setLineWidth(style.strokeWidth);
+  if (style.fill) pdf.setFillColor(style.fill[0], style.fill[1], style.fill[2]);
+
+  const drawMode: 'F' | 'S' | 'B' = style.fill ? 'B' : 'S';
+
+  // Aplica opacidade via GState se disponível.
+  const anyPdf = pdf as any;
+  const hasGState = typeof anyPdf.GState === 'function' && typeof anyPdf.setGState === 'function';
+  if (hasGState && style.fill && style.fillOpacity != null) {
+    anyPdf.setGState(new anyPdf.GState({ opacity: style.fillOpacity, 'stroke-opacity': 1 }));
+  }
+
   const drawRing = (ring: number[][]) => {
     if (ring.length < 2) return;
     const pts = ring.map(([lng, lat]) => proj(lat, lng));
-    // Path: moveTo + lineTo + close. jsPDF não tem Path API direta, usamos lines().
-    const lines: [number, number][] = [];
-    for (let i = 1; i < pts.length; i++) {
-      lines.push([pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]]);
-    }
-    pdf.setDrawColor(style.stroke[0], style.stroke[1], style.stroke[2]);
-    pdf.setLineWidth(style.strokeWidth);
-    if (style.fill) {
-      pdf.setFillColor(style.fill[0], style.fill[1], style.fill[2]);
-      // jsPDF não tem fill com opacity nativo; simulamos com setGState se disponível.
-      const gs = (pdf as any).GState ? new (pdf as any).GState({ opacity: style.fillOpacity ?? 0.3 }) : null;
-      if (gs) (pdf as any).setGState(gs);
-      pdf.lines(lines, pts[0][0], pts[0][1], [1, 1], 'F', true);
-      if (gs) (pdf as any).setGState(new (pdf as any).GState({ opacity: 1 }));
-    }
-    // Stroke por cima
-    pdf.lines(lines, pts[0][0], pts[0][1], [1, 1], 'S', true);
+    drawRingSimple(pdf, pts, drawMode);
   };
 
   if (geom.type === 'Polygon') {
     geom.coordinates.forEach(drawRing);
   } else if (geom.type === 'MultiPolygon') {
     geom.coordinates.forEach(poly => poly.forEach(drawRing));
+  }
+
+  if (hasGState) {
+    anyPdf.setGState(new anyPdf.GState({ opacity: 1, 'stroke-opacity': 1 }));
   }
 }
 
@@ -172,8 +202,10 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
   controlsToHide.forEach(el => { el.style.display = 'none'; });
   setOverlayTilesVisible?.(false);
 
-  // Pequeno delay para o Leaflet aplicar o `visibility:hidden` antes do snapshot.
-  await new Promise(r => setTimeout(r, 120));
+  // Aguarda 2x requestAnimationFrame + delay extra para o navegador fazer
+  // reflow e o Leaflet aplicar visibility:hidden nas tiles WMS antes do snapshot.
+  await new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+  await new Promise(r => setTimeout(r, 250));
 
   let pngDataUrl: string;
   try {
@@ -194,10 +226,10 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
   const MAP_W = PAGE_W - MARGIN * 2 - PANEL_W - GAP;
   const MAP_H = PAGE_H - MARGIN * 2;
 
-  // Helper: centraliza texto manualmente (evita ghost spacing em alguns viewers).
+  // Helper: usa o align nativo do jsPDF (sem getTextWidth manual → sem
+  // letter-spacing fantasma quando o fallback helvetica é usado).
   const centerText = (text: string, x: number, y: number) => {
-    const w = pdf.getTextWidth(text);
-    pdf.text(text, x - w / 2, y);
+    pdf.text(text, x, y, { align: 'center' });
   };
 
   // Borda externa
@@ -207,11 +239,17 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
   // ===== Mapa (esquerda) — basemap + polígonos vetoriais =====
   pdf.addImage(pngDataUrl, 'PNG', MARGIN, MARGIN, MAP_W, MAP_H, undefined, 'FAST');
 
-  // Desenha vizinhos vetorialmente (azul claro)
+  // Desenha vizinhos vetorialmente (vermelho) — RECORTADOS ao viewport.
   if (neighborsFc) {
     const proj = makeProjector(leafletMap, leafletEl, MARGIN, MARGIN, MAP_W, MAP_H);
+    const mainCar = (mainFeature?.properties as any)?.cod_imovel;
     neighborsFc.features?.forEach(feat => {
-      drawGeoFeature(pdf, feat, proj, {
+      // Pula a feição principal se ela aparecer na coleção de vizinhos.
+      const car = (feat.properties as any)?.cod_imovel;
+      if (mainCar && car && car === mainCar) return;
+      const clipped = clipToViewport(feat, leafletMap);
+      if (!clipped) return;
+      drawGeoFeature(pdf, clipped, proj, {
         stroke: [180, 30, 35],
         strokeWidth: 0.4,
         fill: [220, 60, 60],
@@ -220,10 +258,11 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
     });
   }
 
-  // Desenha o imóvel em estudo (verde, traço grosso, hachura translúcida)
+  // Desenha o imóvel em estudo (verde, traço grosso) — também recortado.
   if (mainFeature) {
     const proj = makeProjector(leafletMap, leafletEl, MARGIN, MARGIN, MAP_W, MAP_H);
-    drawGeoFeature(pdf, mainFeature, proj, {
+    const clipped = clipToViewport(mainFeature, leafletMap) ?? mainFeature;
+    drawGeoFeature(pdf, clipped, proj, {
       stroke: [40, 130, 60],
       strokeWidth: 0.9,
       fill: [120, 200, 130],
@@ -252,11 +291,10 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
   const PANEL_X = PAGE_W - MARGIN - PANEL_W;
   let cursorY = MARGIN;
 
-  // ---- Bloco 1: identificação (logo + nome empresa + título do mapa) ----
+  // ---- Bloco 1: identificação ----
   pdf.setFont(FAM, 'bold').setFontSize(9);
   const titleLines = pdf.splitTextToSize(title, PANEL_W - 8) as string[];
   const titleHeight = titleLines.length * 4.2;
-  // Carrega logo da empresa (se disponível)
   const logoData = companyLogoUrl ? await urlToDataUrl(companyLogoUrl) : null;
   const logoH = logoData ? 14 : 0;
   const block1H = Math.max(34, 8 + logoH + 6 + titleHeight + 6);
@@ -267,7 +305,7 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
     try {
       const fmt = logoData.startsWith('data:image/png') ? 'PNG' : 'JPEG';
       pdf.addImage(logoData, fmt, PANEL_X + (PANEL_W - 28) / 2, cursorY + 4, 28, logoH, undefined, 'FAST');
-    } catch { /* ignore corrupt image */ }
+    } catch { /* ignore */ }
   }
   pdf.setFont(FAM, 'bold').setFontSize(11).setTextColor(31, 122, 76);
   centerText(companyName, PANEL_X + PANEL_W / 2, cursorY + 8 + logoH + 3);
@@ -349,7 +387,6 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
   pdf.setFont(FAM, 'bold').setFontSize(8).setTextColor(0, 0, 0);
   centerText('Responsável Técnico', PANEL_X + PANEL_W / 2, cursorY + 5);
 
-  // Assinatura digitalizada (PNG transparente) acima da linha
   const sigData = responsibleSignatureUrl ? await urlToDataUrl(responsibleSignatureUrl) : null;
   if (sigData) {
     try {
@@ -385,7 +422,7 @@ function drawNorthArrow(pdf: jsPDF, x: number, y: number, size: number, fam: str
   pdf.setFillColor(255, 255, 255);
   pdf.triangle(x + size / 2, y + size * 0.25, x + size * 0.25, y + size * 0.95, x + size * 0.75, y + size * 0.95, 'F');
   pdf.setFillColor(0, 0, 0).setFontSize(7).setFont(fam, 'bold').setTextColor(0, 0, 0);
-  pdf.text('N', x + size / 2 - pdf.getTextWidth('N') / 2, y + size + 3);
+  pdf.text('N', x + size / 2, y + size + 3, { align: 'center' });
 }
 
 function drawGraphicScale(pdf: jsPDF, x: number, y: number, width: number, scale: number, fam: string) {
@@ -404,8 +441,7 @@ function drawGraphicScale(pdf: jsPDF, x: number, y: number, width: number, scale
     pdf.rect(x + i * realSegW, y, realSegW, 1.8, 'FD');
   }
   pdf.setFont(fam, 'normal').setFontSize(6).setTextColor(0, 0, 0);
-  const c = (s: string, cx: number) => pdf.text(s, cx - pdf.getTextWidth(s) / 2, y + 5);
-  c('0', x);
-  c(`${((niceMeters * SEG) / 2).toLocaleString('pt-BR')} m`, x + realTotalW / 2);
-  c(`${(niceMeters * SEG).toLocaleString('pt-BR')} m`, x + realTotalW);
+  pdf.text('0', x, y + 5, { align: 'center' });
+  pdf.text(`${((niceMeters * SEG) / 2).toLocaleString('pt-BR')} m`, x + realTotalW / 2, y + 5, { align: 'center' });
+  pdf.text(`${(niceMeters * SEG).toLocaleString('pt-BR')} m`, x + realTotalW, y + 5, { align: 'center' });
 }
