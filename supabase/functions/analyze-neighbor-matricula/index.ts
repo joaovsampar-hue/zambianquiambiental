@@ -2,7 +2,7 @@
 // Diferente de process-matricula (imóvel principal), este prompt foca em:
 //  - Identificar SOMENTE o(s) proprietário(s) atual(is)
 //  - Buscar dados documentais (CPF/RG) em averbações anteriores quando ausentes
-//  - Não confundir o imóvel confrontante com o imóvel principal do processo
+//  - NÃO extrair ônus, hipotecas ou alertas (esses dados não são necessários para confrontante)
 //
 // Fluxo:
 //  1) Primeira chamada à IA pedindo extração completa
@@ -17,7 +17,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const SYSTEM_PROMPT = `Você está analisando a matrícula de um IMÓVEL CONFRONTANTE, NÃO do imóvel principal do processo. Seu objetivo é extrair três categorias com máxima precisão.
+const SYSTEM_PROMPT = `Você está analisando a matrícula de um IMÓVEL CONFRONTANTE, NÃO do imóvel principal do processo. Seu objetivo é extrair APENAS dois grupos de dados com máxima precisão: (1) proprietário(s) atual(is) e (2) identificação do imóvel. NÃO extraia ônus, hipotecas, restrições ou alertas — esses dados são irrelevantes para a análise de confrontante.
 
 CATEGORIA 1 — PROPRIETÁRIO(S) ATUAL(IS):
 Percorra TODOS os atos da matrícula em ordem cronológica. O proprietário atual é o último adquirente de cada fração SEM ato posterior de transmissão. Ignore transmitentes e adquirentes intermediários. Para cada proprietário atual, extraia: nome completo, CPF, RG e órgão emissor, estado civil, regime de casamento, dados do cônjuge.
@@ -27,13 +27,11 @@ Em caso de dúvida sobre quem é o atual titular, retorne com flag \`verificar_t
 CATEGORIA 2 — IDENTIFICAÇÃO DO IMÓVEL CONFRONTANTE:
 Extraia: denominação oficial, número da matrícula, número do CCIR (procure em TODAS as páginas, inclusive cabeçalho e averbações), município e UF, comarca, cartório de registro, área total em hectares.
 
-CATEGORIA 3 — ALERTAS:
-Liste situações que possam afetar o georreferenciamento: ônus ativos (hipotecas, alienações fiduciárias, penhoras), usufrutos, cláusulas restritivas, indisponibilidades.
-
 REGRAS CRÍTICAS:
 - NUNCA confunda dados deste imóvel com o imóvel principal mencionado em referências cruzadas
 - Ignore completamente textos de marca d'água
 - Documentos antigos datilografados: normalize dados mas preserve números documentais EXATAMENTE
+- NÃO retorne campos de ônus, hipotecas, alienações fiduciárias, penhoras, servidões ou alertas — esses dados não são necessários
 - Retorne SEMPRE JSON válido, mesmo que campos estejam null — NUNCA string vazia ou objeto incompleto
 
 Retorne EXATAMENTE este schema (sem markdown, sem texto adicional):
@@ -41,6 +39,7 @@ Retorne EXATAMENTE este schema (sem markdown, sem texto adicional):
   "denominacao_imovel": string | null,
   "matricula_numero": string | null,
   "ccir": string | null,
+  "ccir_fonte": "ccir" | "registro_incra" | "nao_encontrado",
   "municipio": string | null,
   "uf": string | null,
   "comarca": string | null,
@@ -54,20 +53,14 @@ Retorne EXATAMENTE este schema (sem markdown, sem texto adicional):
     "data_nascimento": string | null,
     "estado_civil": string | null,
     "regime_casamento": string | null,
+    "vigencia_lei_divorcio": "antes_da_vigencia" | "apos_vigencia" | "nao_identificado",
     "conjuge_nome": string | null,
     "conjuge_cpf": string | null,
     "fracao": string | null,
     "verificar_titularidade": boolean,
     "fonte_dados_documentais": "averbacao_final" | "averbacao_anterior" | "nao_encontrado"
   }],
-  "alertas": string[],
-  "campos_incertos": string[],
-  "hipotecas": [{
-    "descricao": string,
-    "ato_origem": string | null,
-    "status_hipoteca": "ativa" | "cancelada" | "indefinida",
-    "ato_cancelamento": string | null
-  }]
+  "campos_incertos": string[]
 }
 
 === INSTRUÇÕES ADICIONAIS PARA MATRÍCULAS DIFÍCEIS ===
@@ -87,8 +80,15 @@ Para cada proprietário atual identificado, extraia CPF, RG e órgão emissor. S
 INSTRUÇÃO 5 — ESTADO CIVIL, REGIME DE CASAMENTO E CÔNJUGE:
 Para cada proprietário, extraia o estado civil declarado no ato de aquisição ou em averbação posterior. Se o proprietário for casado, extraia também: nome completo do cônjuge, CPF do cônjuge quando mencionado, RG do cônjuge quando mencionado, e regime de bens (comunhão parcial, comunhão universal, separação total, separação obrigatória ou participação final nos aquestos). Essas informações costumam aparecer na qualificação do adquirente no ato de compra e venda ou em averbação de pacto antenupcial. Se o estado civil mudou entre atos (ex: solteiro na compra, casado em averbação posterior), retorne o estado civil mais recente.
 
-INSTRUÇÃO 6 — HIPOTECAS E ÔNUS — IDENTIFICAÇÃO DE STATUS:
-Para cada hipoteca encontrada, verifique se existe ato posterior de cancelamento, baixa ou quitação na mesma matrícula que faça referência ao número do ato, livro ou folha da hipoteca original. Preencha o array "hipotecas" com um objeto por hipoteca contendo: descricao (resumo do ato), ato_origem (número/data do ato original), status_hipoteca ("cancelada" se houver baixa, registrando o ato_cancelamento; "ativa" se NÃO houver baixa; "indefinida" se documento incompleto/ilegível) e ato_cancelamento (número do ato de baixa ou null). O campo status_hipoteca é obrigatório para cada hipoteca.`;
+INSTRUÇÃO 7 — REGIME DE CASAMENTO E LEI 6.515/77:
+Ao extrair o regime de casamento de um proprietário, identifique também o enquadramento legal conforme a data do casamento:
+- Casamento anterior a 26/12/1977 (antes da vigência da Lei 6.515/77): regime padrão era comunhão universal de bens, salvo pacto antenupcial em contrário. Retorne vigencia_lei_divorcio: 'antes_da_vigencia'.
+- Casamento a partir de 26/12/1977 (na vigência ou após): regime padrão passou a ser comunhão parcial de bens. Retorne vigencia_lei_divorcio: 'apos_vigencia'.
+- Se a data do casamento não estiver disponível mas o regime estiver explícito na matrícula, retorne vigencia_lei_divorcio: 'nao_identificado'.
+Adicione o campo "vigencia_lei_divorcio" ao objeto de cada proprietário no JSON retornado.
+
+INSTRUÇÃO 8 — CCIR E REGISTRO NO INCRA:
+O número do CCIR pode não aparecer com essa denominação na matrícula. Pesquise também por: 'registrado no INCRA sob o número', 'cadastrado no INCRA', 'inscrição no INCRA nº', 'registro INCRA nº', 'matrícula no INCRA', ou qualquer menção a número de cadastro junto ao INCRA. Se encontrar esse número por essa via alternativa, retorne-o no campo "ccir" normalmente e use "ccir_fonte": 'registro_incra'. Se encontrar pela denominação CCIR padrão, use "ccir_fonte": 'ccir'. Se não encontrar de nenhuma forma, retorne "ccir": null e "ccir_fonte": 'nao_encontrado'.`;
 
 const RETRY_PROMPT = (nome: string) =>
   `Na análise anterior NÃO foram encontrados CPF e RG do proprietário atual "${nome}". Pesquise em TODOS os atos anteriores desta matrícula — compra e venda, inventários, formais de partilha, averbações — e retorne quaisquer dados documentais (CPF, RG, órgão emissor, data de nascimento) associados ao nome "${nome}". Retorne SOMENTE JSON no formato:
@@ -155,7 +155,7 @@ serve(async (req) => {
     const base64 = btoa(binary);
 
     const userContent = [
-      { type: "text", text: "Analise esta matrícula de IMÓVEL CONFRONTANTE seguindo rigorosamente as regras do system prompt. Foco: APENAS proprietário(s) atual(is)." },
+      { type: "text", text: "Analise esta matrícula de IMÓVEL CONFRONTANTE seguindo rigorosamente as regras do system prompt. Foco: APENAS proprietário(s) atual(is) e identificação do imóvel. NÃO extraia ônus, hipotecas ou alertas." },
       { type: "image_url", image_url: { url: `data:application/pdf;base64,${base64}` } },
     ];
 
@@ -169,18 +169,24 @@ serve(async (req) => {
     if (!parsed || typeof parsed !== "object") {
       console.error("Parse falhou na 1ª chamada:", content1.slice(0, 400));
       parsed = {
-        denominacao_imovel: null, matricula_numero: null, ccir: null,
+        denominacao_imovel: null, matricula_numero: null, ccir: null, ccir_fonte: "nao_encontrado",
         municipio: null, uf: null, comarca: null, cartorio: null, area_hectares: null,
         proprietarios_atuais: [],
-        alertas: ["Falha ao parsear resposta da IA — revisar manualmente."],
         campos_incertos: ["todos"],
       };
     }
 
-    // Normaliza
+    // Normaliza — REMOVIDOS: alertas, hipotecas e qualquer campo de ônus
     parsed.proprietarios_atuais = Array.isArray(parsed.proprietarios_atuais) ? parsed.proprietarios_atuais : [];
-    parsed.alertas = Array.isArray(parsed.alertas) ? parsed.alertas : [];
     parsed.campos_incertos = Array.isArray(parsed.campos_incertos) ? parsed.campos_incertos : [];
+    if (!parsed.ccir_fonte) parsed.ccir_fonte = parsed.ccir ? "ccir" : "nao_encontrado";
+    // Remove explicitamente campos de ônus que a IA possa retornar por hábito
+    delete parsed.alertas;
+    delete parsed.hipotecas;
+    delete parsed.alienacoes_fiduciarias;
+    delete parsed.penhoras;
+    delete parsed.servidoes;
+    delete parsed.onus;
 
     // 2) Retry para proprietários sem CPF E sem RG
     const incompletos = parsed.proprietarios_atuais.filter(
