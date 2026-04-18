@@ -11,8 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useToast } from '@/hooks/use-toast';
 import Breadcrumb from '@/components/Breadcrumb';
 import PropertyMap, { MapData, PropertyMapHandle } from '@/components/map/PropertyMap';
-import { SERVICE_TYPES, isValidCAR, sanitizeCAR, carUF } from '@/lib/processStages';
-import { ArrowRight, ArrowLeft, Check, Loader2, MapPinned, UserPlus } from 'lucide-react';
+import { SERVICE_TYPES } from '@/lib/processStages';
+import { ArrowRight, ArrowLeft, Check, Loader2, UserPlus } from 'lucide-react';
 
 export default function NewProcessPage() {
   const { user } = useAuth();
