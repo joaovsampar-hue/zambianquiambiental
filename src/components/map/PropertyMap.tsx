@@ -211,12 +211,38 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
       overlays[`SICAR — ${uf}`] = wms;
     });
 
+    // ===== OVERLAY SIGEF (parcelas certificadas pelo INCRA) =====
+    // Carregado dinamicamente por BBOX a cada moveend quando ativo. Usa cor
+    // laranja pra distinguir visualmente do SICAR (azul/cinza/verde).
+    sigefLayer.current = L.layerGroup();
+    overlays['SIGEF — Parcelas certificadas (INCRA)'] = sigefLayer.current;
+
     L.control
       .layers(bases, overlays, { position: 'topright', collapsed: true })
       .addTo(map);
 
     layerGroup.current = L.layerGroup().addTo(map);
     neighborsLayer.current = L.layerGroup().addTo(map);
+
+    // Liga/desliga o fetcher dinâmico do SIGEF conforme o usuário marca o overlay.
+    map.on('overlayadd', (e: L.LayersControlEvent) => {
+      if (e.layer === sigefLayer.current) {
+        sigefActive.current = true;
+        setSigefStatus('idle');
+        loadSigefForCurrentBounds();
+      }
+    });
+    map.on('overlayremove', (e: L.LayersControlEvent) => {
+      if (e.layer === sigefLayer.current) {
+        sigefActive.current = false;
+        sigefLayer.current?.clearLayers();
+        setSigefStatus('idle');
+        setSigefCount(0);
+      }
+    });
+    map.on('moveend', () => {
+      if (sigefActive.current) loadSigefForCurrentBounds();
+    });
 
     map.on('click', async (e: L.LeafletMouseEvent) => {
       setClickedCoord({ lat: e.latlng.lat, lng: e.latlng.lng });
