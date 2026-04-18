@@ -250,12 +250,13 @@ export default function NewProcessPage() {
                 {/* Coluna direita — mapa */}
                 <div className="space-y-2">
                   <Label className="text-xs text-muted-foreground">
-                    Localize visualmente o imóvel — ative a camada CAR no painel do mapa
+                    Use a aba <strong>CAR</strong> abaixo do mapa para buscar o imóvel pelo número — o polígono é carregado direto do SICAR e o CAR fica vinculado ao processo.
                   </Label>
                   <PropertyMap
                     ref={mapHandleRef}
                     initialData={mapData}
                     onChange={setMapData}
+                    onCarLoaded={(car) => setCarClean(car)}
                     height="500px"
                   />
                 </div>
