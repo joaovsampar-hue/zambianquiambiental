@@ -160,27 +160,24 @@ function drawRingAbsolute(
 ) {
   if (ringPts.length < 3) return;
   // jsPDF expõe métodos internos para path absoluto.
-  const anyPdf = pdf as any;
-  // Inicia o path no primeiro ponto.
-  anyPdf.internal.write(`${(ringPts[0][0]).toFixed(2)} ${pdf.internal.pageSize.getHeight() - ringPts[0][1] | 0} m`);
-  // Versão segura: usar pdf.lines com deltas, mas em uma SÓ chamada por ring,
-  // e usando 'B' (both fill+stroke) num único pass — sem duplicar.
-}
-
-// Versão simplificada e correta usando pdf.lines com UM único pass.
-function drawRingSimple(
+// Desenha um ring fechado num único path do PDF — fill+stroke em um pass
+// (modo 'B'), garantindo que o último ponto retorne ao primeiro para evitar
+// "faixas" residuais de path aberto.
+function drawClosedRing(
   pdf: jsPDF,
   pts: Array<[number, number]>,
   style: 'F' | 'S' | 'B',
 ) {
-  if (pts.length < 2) return;
-  const lines: [number, number][] = [];
-  for (let i = 1; i < pts.length; i++) {
-    lines.push([pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]]);
+  if (pts.length < 3) return;
+  const closed = [...pts];
+  const first = closed[0];
+  const last = closed[closed.length - 1];
+  if (first[0] !== last[0] || first[1] !== last[1]) closed.push([first[0], first[1]]);
+  const deltas: [number, number][] = [];
+  for (let i = 1; i < closed.length; i++) {
+    deltas.push([closed[i][0] - closed[i - 1][0], closed[i][1] - closed[i - 1][1]]);
   }
-  // Um único pdf.lines() com style 'B' faz fill + stroke num só path → sem
-  // artefatos de rings sobrescritos.
-  pdf.lines(lines, pts[0][0], pts[0][1], [1, 1], style, true);
+  pdf.lines(deltas, closed[0][0], closed[0][1], [1, 1], style, true);
 }
 
 function drawGeoFeature(
