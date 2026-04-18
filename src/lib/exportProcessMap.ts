@@ -95,7 +95,7 @@ function clipToViewport(feature: GeoJSON.Feature, map: L.Map): GeoJSON.Feature |
     const bbox: [number, number, number, number] = [
       padded.getWest(), padded.getSouth(), padded.getEast(), padded.getNorth(),
     ];
-    const clipped = turf.bboxClip(feature as any, bbox);
+    const clipped = bboxClip(feature as any, bbox);
     const g = clipped.geometry;
     if (!g) return null;
     if (g.type === 'Polygon' && g.coordinates.length === 0) return null;
