@@ -71,7 +71,7 @@ interface Props {
 const BASE_LAYER_KEY = 'geodoc.map.baseLayer';
 
 const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
-  { initialData, onChange, height = '500px', readOnly, carNumber, onCarLoaded, onNeighborPick, onNeighborsDetected },
+  { initialData, onChange, height = '500px', readOnly, carNumber, onCarLoaded, onNeighborPick, onNeighborsDetected, selectedNeighbors, onNeighborToggle },
   ref,
 ) {
   const mapRef = useRef<HTMLDivElement>(null);
