@@ -126,19 +126,28 @@ type Projector = ReturnType<typeof makeProjector>;
 function clipToViewport(feature: GeoJSON.Feature, map: L.Map): GeoJSON.Feature | null {
   try {
     const bounds = map.getBounds();
-    // Expande 5% pra evitar clip duro nas bordas.
     const padded = bounds.pad(0.05);
     const bbox: [number, number, number, number] = [
       padded.getWest(), padded.getSouth(), padded.getEast(), padded.getNorth(),
     ];
     const clipped = bboxClip(feature as any, bbox);
-    const g = clipped.geometry;
+    const g = clipped.geometry as GeoJSON.Geometry | null;
     if (!g) return null;
-    if (g.type === 'Polygon' && g.coordinates.length === 0) return null;
-    if (g.type === 'MultiPolygon' && g.coordinates.length === 0) return null;
-    return clipped as any;
+    if (g.type === 'Polygon') {
+      const rings = (g.coordinates as number[][][]).filter(r => r && r.length >= 4);
+      if (rings.length === 0) return null;
+      return { type: 'Feature', geometry: { type: 'Polygon', coordinates: rings }, properties: feature.properties ?? {} };
+    }
+    if (g.type === 'MultiPolygon') {
+      const polys = (g.coordinates as number[][][][])
+        .map(poly => poly.filter(r => r && r.length >= 4))
+        .filter(poly => poly.length > 0);
+      if (polys.length === 0) return null;
+      return { type: 'Feature', geometry: { type: 'MultiPolygon', coordinates: polys }, properties: feature.properties ?? {} };
+    }
+    return null;
   } catch {
-    return feature;
+    return null;
   }
 }
 
