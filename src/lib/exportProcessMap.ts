@@ -247,16 +247,18 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
   await new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r())));
   await new Promise(r => setTimeout(r, 250));
 
-  let pngDataUrl: string;
+  let pngDataUrl: string | null = null;
   try {
     console.log('[exportProcessMap] capturing PNG...');
-    pngDataUrl = await toPng(leafletEl, { pixelRatio: 2, cacheBust: true, skipFonts: false });
+    pngDataUrl = await toPng(leafletEl, {
+      pixelRatio: 2,
+      cacheBust: true,
+      skipFonts: false,
+      includeQueryParams: true,
+    });
     console.log('[exportProcessMap] PNG captured, length:', pngDataUrl.length);
   } catch (err) {
-    console.error('[exportProcessMap] toPng failed:', err);
-    controlsToHide.forEach((el, i) => { el.style.display = prevDisplays[i]; });
-    setOverlayTilesVisible?.(true);
-    throw new Error(`Falha capturando o mapa: ${(err as Error).message}`);
+    console.error('[exportProcessMap] toPng failed, fallback to vector-only PDF:', err);
   } finally {
     controlsToHide.forEach((el, i) => { el.style.display = prevDisplays[i]; });
     setOverlayTilesVisible?.(true);
@@ -284,38 +286,36 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
   pdf.rect(MARGIN, MARGIN, PAGE_W - MARGIN * 2, PAGE_H - MARGIN * 2);
 
   // ===== Mapa (esquerda) — basemap + polígonos vetoriais =====
-  // Recorta o PNG capturado ao aspect ratio do slot do PDF (sem distorcer).
-  // Mantém o centro do mapa visível — o que o usuário vê na tela é o que entra
-  // no PDF, só com as bordas (lateral ou topo/base) cortadas.
   const domRect = leafletEl.getBoundingClientRect();
   const targetAspect = MAP_W / MAP_H;
   const sourceAspect = domRect.width / domRect.height;
   let cropSrcX = 0, cropSrcY = 0, cropSrcW = domRect.width, cropSrcH = domRect.height;
   if (sourceAspect > targetAspect) {
-    // imagem mais larga → corta as laterais
     cropSrcW = domRect.height * targetAspect;
     cropSrcX = (domRect.width - cropSrcW) / 2;
   } else {
-    // imagem mais alta → corta topo/base
     cropSrcH = domRect.width / targetAspect;
     cropSrcY = (domRect.height - cropSrcH) / 2;
   }
 
-  // Faz o crop do PNG via canvas. Se falhar (canvas tainted, etc.), faz fallback
-  // pra imagem original esticada — melhor distorcida do que sem mapa.
-  let imgToAdd = pngDataUrl;
-  try {
-    console.log('[exportProcessMap] cropping PNG', { cropSrcX, cropSrcY, cropSrcW, cropSrcH });
-    imgToAdd = await cropPngToAspect(pngDataUrl, cropSrcX, cropSrcY, cropSrcW, cropSrcH, 2);
-    console.log('[exportProcessMap] crop OK, length:', imgToAdd.length);
-  } catch (err) {
-    console.error('[exportProcessMap] crop failed, using original:', err);
-  }
-  try {
-    pdf.addImage(imgToAdd, 'PNG', MARGIN, MARGIN, MAP_W, MAP_H, undefined, 'FAST');
-  } catch (err) {
-    console.error('[exportProcessMap] addImage failed:', err);
-    throw new Error(`Falha inserindo imagem no PDF: ${(err as Error).message}`);
+  if (pngDataUrl) {
+    let imgToAdd = pngDataUrl;
+    try {
+      console.log('[exportProcessMap] cropping PNG', { cropSrcX, cropSrcY, cropSrcW, cropSrcH });
+      imgToAdd = await cropPngToAspect(pngDataUrl, cropSrcX, cropSrcY, cropSrcW, cropSrcH, 2);
+      console.log('[exportProcessMap] crop OK, length:', imgToAdd.length);
+    } catch (err) {
+      console.error('[exportProcessMap] crop failed, using original:', err);
+    }
+    try {
+      pdf.addImage(imgToAdd, 'PNG', MARGIN, MARGIN, MAP_W, MAP_H, undefined, 'FAST');
+    } catch (err) {
+      console.error('[exportProcessMap] addImage failed, continuing without basemap:', err);
+    }
+  } else {
+    console.warn('[exportProcessMap] basemap unavailable, rendering vector-only map');
+    pdf.setFillColor(250, 250, 250);
+    pdf.rect(MARGIN, MARGIN, MAP_W, MAP_H, 'F');
   }
 
   const cropMeta = {

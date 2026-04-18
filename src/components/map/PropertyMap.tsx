@@ -195,20 +195,22 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
         'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
         {
           maxZoom: 20,
+          crossOrigin: 'anonymous',
           attribution:
             '© Esri, Maxar, GeoEye, Earthstar Geographics, CNES/Airbus DS, USDA, USGS, AeroGRID, IGN',
         },
       ),
       'Satélite HD (Clarity)': L.tileLayer(
         'https://clarity.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-        { maxZoom: 21, attribution: '© Esri, Maxar, Microsoft' },
+        { maxZoom: 21, crossOrigin: 'anonymous', attribution: '© Esri, Maxar, Microsoft' },
       ),
       'Mapa de ruas (Esri)': L.tileLayer(
         'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
-        { maxZoom: 20, attribution: '© Esri' },
+        { maxZoom: 20, crossOrigin: 'anonymous', attribution: '© Esri' },
       ),
       'OpenStreetMap': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
+        crossOrigin: 'anonymous',
         attribution: '© OpenStreetMap contributors',
       }),
     };
