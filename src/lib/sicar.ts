@@ -168,16 +168,20 @@ export async function fetchTouchingNeighbors(
   uf: SicarUF,
   geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon,
   excludeCar: string,
-  maxFeatures = 100,
+  maxFeatures = 30,
 ): Promise<GeoJSON.FeatureCollection | null> {
-  // BBOX expandido em ~0.0005° (~55m) — suficiente para capturar todos os
-  // confrontantes diretos sem trazer imóveis distantes.
+  // BBOX expandido em ~0.0005° (~55m) — captura todos os confrontantes diretos
+  // sem pegar imóveis distantes. O índice espacial do GeoServer cuida do filtro.
   const [minLng, minLat, maxLng, maxLat] = geometryBBox(geometry);
   const buffer = 0.0005;
   // BBOX no WFS 2.0 + EPSG:4326 usa ordem lat,lng,lat,lng (eixo invertido vs GeoJSON).
   const bbox = `${minLat - buffer},${minLng - buffer},${maxLat + buffer},${maxLng + buffer},EPSG:4326`;
-
   const exclude = sanitizeCar(excludeCar);
+
+  // ATENÇÃO: NÃO combine `bbox` com `CQL_FILTER` no SICAR — testes empíricos
+  // mostram que o GeoServer da SFB faz o filtro CQL ANTES do índice espacial e
+  // a query trava com timeout (HTTP 522). Pedimos só por BBOX e excluímos o CAR
+  // principal aqui no cliente.
   const params = new URLSearchParams({
     service: 'WFS',
     version: '2.0.0',
@@ -187,24 +191,26 @@ export async function fetchTouchingNeighbors(
     srsName: 'EPSG:4326',
     count: String(maxFeatures),
     bbox,
-    CQL_FILTER: `cod_imovel<>'${exclude}'`,
   });
 
   try {
-    const resp = await fetch(`${SICAR_WFS}?${params.toString()}`);
+    // Timeout client-side: SICAR pode levar 30s+ — não vale a pena esperar.
+    const ctrl = new AbortController();
+    const timeoutId = setTimeout(() => ctrl.abort(), 25000);
+    const resp = await fetch(`${SICAR_WFS}?${params.toString()}`, { signal: ctrl.signal });
+    clearTimeout(timeoutId);
     if (!resp.ok) return null;
     const fc = (await resp.json()) as GeoJSON.FeatureCollection;
     if (!fc.features?.length) return fc;
 
-    // Filtragem fina client-side: descarta imóveis cujo BBOX **não** sobrepõe o
-    // BBOX expandido do principal (defesa extra) e mantém só os que de fato podem
-    // tocar a fronteira. O BBOX do servidor já fez o trabalho pesado — aqui é
-    // só remover sobras óbvias.
+    // Remove o imóvel principal e filtra por sobreposição real de BBOX
+    // (defesa extra contra falsos-positivos do índice espacial).
     const filtered = fc.features.filter(f => {
       const g = f.geometry as GeoJSON.Polygon | GeoJSON.MultiPolygon;
+      const codImovel = (f.properties as any)?.cod_imovel as string | undefined;
       if (!g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon')) return false;
+      if (codImovel && sanitizeCar(codImovel) === exclude) return false;
       const [a, b, c, d] = geometryBBox(g);
-      // Sobreposição de BBOX (com a tolerância já aplicada no principal)
       return !(c < minLng - buffer || a > maxLng + buffer || d < minLat - buffer || b > maxLat + buffer);
     });
     return { ...fc, features: filtered };
