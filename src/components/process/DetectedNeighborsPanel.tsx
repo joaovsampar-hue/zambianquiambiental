@@ -8,8 +8,11 @@
  *
  * Os já cadastrados (mesmo CAR já inserido em `process_neighbors`) aparecem
  * em destaque verde + checkbox desabilitado — evita duplicatas.
+ *
+ * O estado de seleção é **controlado pelo pai** para que o mapa também possa
+ * marcar/desmarcar via popup nos polígonos azuis.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
