@@ -105,7 +105,7 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
   // Área (texto sobreposto sobre o mapa, canto inferior esquerdo)
   if (areaHa != null) {
     pdf.setFillColor(255, 255, 255);
-    pdf.setDrawColor(180);
+    pdf.setDrawColor(180,180,180);
     const txt = `Área: ${areaHa.toFixed(3)} ha`;
     pdf.setFontSize(10);
     const w = pdf.getTextWidth(txt) + 4;
@@ -127,10 +127,10 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
   // Logo placeholder (texto, pode ser substituído por imagem futuramente)
   pdf.setFontSize(11).setFont('helvetica', 'bold').setTextColor(31, 122, 76);
   pdf.text('GeoConfront', PANEL_X + PANEL_W / 2, cursorY + 8, { align: 'center' });
-  pdf.setFontSize(8).setFont('helvetica', 'normal').setTextColor(80);
+  pdf.setFontSize(8).setFont('helvetica', 'normal').setTextColor(80,80,80);
   pdf.text('Análise de Confrontantes', PANEL_X + PANEL_W / 2, cursorY + 12.5, { align: 'center' });
   // Linha separadora
-  pdf.setDrawColor(180).line(PANEL_X + 3, cursorY + 16, PANEL_X + PANEL_W - 3, cursorY + 16);
+  pdf.setDrawColor(180,180,180).line(PANEL_X + 3, cursorY + 16, PANEL_X + PANEL_W - 3, cursorY + 16);
   // Título do mapa (multi-linha)
   pdf.setFontSize(9).setFont('helvetica', 'bold').setTextColor(0,0,0);
   const titleLines = pdf.splitTextToSize(title, PANEL_W - 6);
@@ -203,7 +203,7 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
   const block4H = PAGE_H - MARGIN - cursorY;
   pdf.rect(PANEL_X, cursorY, PANEL_W, block4H);
   if (responsibleName) {
-    pdf.setDrawColor(80).setLineWidth(0.3);
+    pdf.setDrawColor(80,80,80).setLineWidth(0.3);
     pdf.line(PANEL_X + 6, cursorY + block4H - 14, PANEL_X + PANEL_W - 6, cursorY + block4H - 14);
     pdf.setFontSize(8).setFont('helvetica', 'normal').setTextColor(0,0,0);
     pdf.text(responsibleName, PANEL_X + PANEL_W / 2, cursorY + block4H - 10, { align: 'center' });
@@ -213,7 +213,7 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
     }
   }
   if (producedBy) {
-    pdf.setFontSize(6.5).setTextColor(120);
+    pdf.setFontSize(6.5).setTextColor(120,120,120);
     pdf.text(`Produzido por: ${producedBy}`, PANEL_X + PANEL_W / 2, cursorY + block4H - 2, { align: 'center' });
   }
 
