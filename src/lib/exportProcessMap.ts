@@ -126,52 +126,49 @@ type Projector = ReturnType<typeof makeProjector>;
 function clipToViewport(feature: GeoJSON.Feature, map: L.Map): GeoJSON.Feature | null {
   try {
     const bounds = map.getBounds();
-    // Expande 5% pra evitar clip duro nas bordas.
     const padded = bounds.pad(0.05);
     const bbox: [number, number, number, number] = [
       padded.getWest(), padded.getSouth(), padded.getEast(), padded.getNorth(),
     ];
     const clipped = bboxClip(feature as any, bbox);
-    const g = clipped.geometry;
+    const g = clipped.geometry as GeoJSON.Geometry | null;
     if (!g) return null;
-    if (g.type === 'Polygon' && g.coordinates.length === 0) return null;
-    if (g.type === 'MultiPolygon' && g.coordinates.length === 0) return null;
-    return clipped as any;
+    if (g.type === 'Polygon') {
+      const rings = (g.coordinates as number[][][]).filter(r => r && r.length >= 4);
+      if (rings.length === 0) return null;
+      return { type: 'Feature', geometry: { type: 'Polygon', coordinates: rings }, properties: feature.properties ?? {} };
+    }
+    if (g.type === 'MultiPolygon') {
+      const polys = (g.coordinates as number[][][][])
+        .map(poly => poly.filter(r => r && r.length >= 4))
+        .filter(poly => poly.length > 0);
+      if (polys.length === 0) return null;
+      return { type: 'Feature', geometry: { type: 'MultiPolygon', coordinates: polys }, properties: feature.properties ?? {} };
+    }
+    return null;
   } catch {
-    return feature;
+    return null;
   }
 }
 
-// Desenha um anel (ring) usando moveTo/lineTo absolutos via jsPDF internal API.
-// Evita pdf.lines() que tem bugs com fill+stroke duplicado em rings complexos.
-function drawRingAbsolute(
-  pdf: jsPDF,
-  ringPts: Array<[number, number]>,
-  style: 'F' | 'S' | 'B',
-) {
-  if (ringPts.length < 3) return;
-  // jsPDF expõe métodos internos para path absoluto.
-  const anyPdf = pdf as any;
-  // Inicia o path no primeiro ponto.
-  anyPdf.internal.write(`${(ringPts[0][0]).toFixed(2)} ${pdf.internal.pageSize.getHeight() - ringPts[0][1] | 0} m`);
-  // Versão segura: usar pdf.lines com deltas, mas em uma SÓ chamada por ring,
-  // e usando 'B' (both fill+stroke) num único pass — sem duplicar.
-}
-
-// Versão simplificada e correta usando pdf.lines com UM único pass.
-function drawRingSimple(
+// Desenha um ring fechado num único path do PDF — fill+stroke em um pass
+// (modo 'B'), garantindo que o último ponto retorne ao primeiro para evitar
+// "faixas" residuais de path aberto.
+function drawClosedRing(
   pdf: jsPDF,
   pts: Array<[number, number]>,
   style: 'F' | 'S' | 'B',
 ) {
-  if (pts.length < 2) return;
-  const lines: [number, number][] = [];
-  for (let i = 1; i < pts.length; i++) {
-    lines.push([pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]]);
+  if (pts.length < 3) return;
+  const closed = [...pts];
+  const first = closed[0];
+  const last = closed[closed.length - 1];
+  if (first[0] !== last[0] || first[1] !== last[1]) closed.push([first[0], first[1]]);
+  const deltas: [number, number][] = [];
+  for (let i = 1; i < closed.length; i++) {
+    deltas.push([closed[i][0] - closed[i - 1][0], closed[i][1] - closed[i - 1][1]]);
   }
-  // Um único pdf.lines() com style 'B' faz fill + stroke num só path → sem
-  // artefatos de rings sobrescritos.
-  pdf.lines(lines, pts[0][0], pts[0][1], [1, 1], style, true);
+  pdf.lines(deltas, closed[0][0], closed[0][1], [1, 1], style, true);
 }
 
 function drawGeoFeature(
@@ -201,16 +198,16 @@ function drawGeoFeature(
     anyPdf.setGState(new anyPdf.GState({ opacity: style.fillOpacity, 'stroke-opacity': 1 }));
   }
 
-  const drawRing = (ring: number[][]) => {
-    if (ring.length < 2) return;
+  const renderRing = (ring: number[][]) => {
+    if (!ring || ring.length < 4) return;
     const pts = ring.map(([lng, lat]) => proj(lat, lng));
-    drawRingSimple(pdf, pts, drawMode);
+    drawClosedRing(pdf, pts, drawMode);
   };
 
   if (geom.type === 'Polygon') {
-    geom.coordinates.forEach(drawRing);
+    geom.coordinates.forEach(renderRing);
   } else if (geom.type === 'MultiPolygon') {
-    geom.coordinates.forEach(poly => poly.forEach(drawRing));
+    geom.coordinates.forEach(poly => poly.forEach(renderRing));
   }
 
   if (hasGState) {
