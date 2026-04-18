@@ -315,20 +315,28 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     }
   };
 
-  // Reaplica estilo dos polígonos vizinhos quando o conjunto de selecionados muda.
-  // Sem isso, a borda azul não destaca os polígonos marcados/desmarcados via popup.
+  // Reaplica estilo dos polígonos vizinhos quando seleção OU lista de cadastrados muda.
+  // Sem isso, o feedback visual (verde quando cadastrado, azul forte quando selecionado)
+  // não acompanha as mudanças no painel.
   useEffect(() => {
     neighborLayersRef.current.forEach((layer, car) => {
       layer.setStyle(styleForNeighbor(car));
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedNeighbors]);
+  }, [selectedNeighbors, registeredNeighbors]);
 
-  // Estilo aplicado a um polígono vizinho conforme estado de seleção atual.
-  // Selecionado = preenchimento mais forte + borda mais grossa, dando feedback
-  // visual de "este vai entrar no cadastro em lote".
+  // Estilo aplicado a um polígono vizinho conforme estado atual:
+  //   - VERDE  → já cadastrado como confrontante (precedência máxima)
+  //   - AZUL FORTE → selecionado no painel pra cadastro em lote
+  //   - AZUL CLARO → detectado mas não selecionado
   const styleForNeighbor = (car: string): L.PathOptions => {
-    const isSelected = selectedNeighborsRef.current.has(sanitizeCar(car));
+    const sanitized = sanitizeCar(car);
+    const isRegistered = registeredNeighborsRef.current.has(sanitized);
+    if (isRegistered) {
+      // Verde alinhado com o tema do app (hsl(152,55%,28%)).
+      return { color: 'hsl(152,55%,28%)', weight: 2, fillColor: 'hsl(152,55%,40%)', fillOpacity: 0.35 };
+    }
+    const isSelected = selectedNeighborsRef.current.has(sanitized);
     return isSelected
       ? { color: '#1D4ED8', weight: 2.5, fillColor: '#3B82F6', fillOpacity: 0.45 }
       : { color: '#3B82F6', weight: 1, fillColor: '#85B7EB', fillOpacity: 0.15 };
