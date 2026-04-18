@@ -15,7 +15,7 @@
 import { toPng } from 'html-to-image';
 import jsPDF from 'jspdf';
 import L from 'leaflet';
-import * as turf from '@turf/turf';
+import bboxClip from '@turf/bbox-clip';
 import { embedInterFont } from './pdfFonts';
 
 export interface ExportMapOptions {
