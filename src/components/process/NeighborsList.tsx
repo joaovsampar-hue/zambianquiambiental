@@ -632,16 +632,28 @@ export default function NeighborsList({ processId, clientName, processNumber, ca
             <tbody>
               {(neighbors as any[]).map(n => {
                 const needsExtraction = !n.full_name && !n.cpf_cnpj && n.car_number;
+                const analyzedAt = n.extracted_data?._analyzed_at as string | undefined;
                 return (
                 <tr key={n.id} className="border-t border-border hover:bg-muted/30">
                   <td className="p-2 text-xs">{n.positions?.join(', ') || '—'}</td>
                   <td className="p-2">
-                    {n.full_name || <span className="text-muted-foreground italic">sem nome</span>}
-                    {needsExtraction && (
-                      <Badge variant="outline" className="ml-2 border-warning/50 text-warning text-[10px] px-1.5 py-0">
-                        sem matrícula
-                      </Badge>
-                    )}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span>{n.full_name || <span className="text-muted-foreground italic">sem nome</span>}</span>
+                      {needsExtraction && (
+                        <Badge variant="outline" className="border-warning/50 text-warning text-[10px] px-1.5 py-0">
+                          sem matrícula
+                        </Badge>
+                      )}
+                      {analyzedAt && (
+                        <Badge
+                          variant="outline"
+                          className="border-success/50 text-success text-[10px] px-1.5 py-0"
+                          title={`Analisada em ${new Date(analyzedAt).toLocaleString('pt-BR')}`}
+                        >
+                          Matrícula analisada ✓
+                        </Badge>
+                      )}
+                    </div>
                   </td>
                   <td className="p-2 text-xs">{n.registration_number || '—'}</td>
                   <td className="p-2 text-xs">{n.ccir_number || '—'}</td>
