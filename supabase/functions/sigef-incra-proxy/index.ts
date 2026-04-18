@@ -66,7 +66,7 @@ function buildUpstreamUrl(reqUrl: URL): { url: string; tema: string } | null {
 }
 
 /** Fetch com timeout — o INCRA pode levar 20-40s em queries pesadas. */
-async function fetchUpstream(url: string, timeoutMs = 35000): Promise<Response> {
+async function fetchUpstreamOnce(url: string, timeoutMs: number): Promise<Response> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
@@ -74,6 +74,41 @@ async function fetchUpstream(url: string, timeoutMs = 35000): Promise<Response> 
   } finally {
     clearTimeout(t);
   }
+}
+
+/**
+ * Fetch com retry + backoff exponencial (2s/4s/8s) quando o INCRA dá timeout
+ * (AbortError) ou status 5xx. O acervo fundiário é instável e cai com frequência;
+ * sem retry geramos muitos falso-negativos no popup ("Sem certificação SIGEF").
+ *
+ * Total worst-case: 3 tentativas × 35s timeout + 2s+4s = ~111s. O Leaflet aceita
+ * tiles lentos sem cancelar — o ganho em recall vale a latência ocasional.
+ */
+async function fetchUpstream(url: string, timeoutMs = 35000): Promise<Response> {
+  const delays = [2000, 4000, 8000]; // backoff entre tentativas (3 tentativas no total)
+  let lastErr: unknown = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const resp = await fetchUpstreamOnce(url, timeoutMs);
+      // Retry só em 5xx (erros do upstream). 4xx = pedido inválido, não adianta repetir.
+      if (resp.status >= 500 && attempt < 2) {
+        console.warn(`[sigef-incra-proxy] upstream ${resp.status}, retry ${attempt + 1}/3`);
+        await new Promise((r) => setTimeout(r, delays[attempt]));
+        continue;
+      }
+      return resp;
+    } catch (e) {
+      lastErr = e;
+      const isAbort = e instanceof DOMException && e.name === 'AbortError';
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn(`[sigef-incra-proxy] tentativa ${attempt + 1}/3 falhou (${isAbort ? 'timeout' : msg})`);
+      if (attempt < 2) {
+        await new Promise((r) => setTimeout(r, delays[attempt]));
+        continue;
+      }
+    }
+  }
+  throw lastErr ?? new Error('All retries failed');
 }
 
 Deno.serve(async (req) => {
