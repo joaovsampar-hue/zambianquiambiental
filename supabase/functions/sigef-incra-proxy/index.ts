@@ -135,8 +135,18 @@ Deno.serve(async (req) => {
     const upstreamResp = await fetchUpstream(upstream.url);
     const contentType = upstreamResp.headers.get('content-type') ?? 'application/octet-stream';
     const body = await upstreamResp.arrayBuffer();
-    // Cache curto: tiles repetem muito (1h é seguro pois o SIGEF muda devagar).
-    const cache = contentType.startsWith('image/') ? 'public, max-age=3600' : 'public, max-age=300';
+    // Cache agressivo (24h) para respostas válidas — o SIGEF muda devagar (semanas/meses)
+    // e o servidor do INCRA é instável: vale guardar bastante para reduzir hits no upstream.
+    // stale-while-revalidate dobra a janela útil servindo cache enquanto revalida em background.
+    const isOk = upstreamResp.status >= 200 && upstreamResp.status < 300;
+    let cache: string;
+    if (!isOk) {
+      cache = 'no-store'; // erros não devem ser cacheados
+    } else if (contentType.startsWith('image/')) {
+      cache = 'public, max-age=86400, stale-while-revalidate=86400'; // 24h + 24h SWR
+    } else {
+      cache = 'public, max-age=86400, stale-while-revalidate=43200'; // 24h + 12h SWR (HTML/XML)
+    }
     return new Response(body, {
       status: upstreamResp.status,
       headers: {
@@ -147,6 +157,21 @@ Deno.serve(async (req) => {
       },
     });
   } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    console.error('[sigef-incra-proxy] upstream error após retries', upstream.url, msg);
+    return new Response(
+      JSON.stringify({ error: 'Upstream INCRA timeout/erro após 3 tentativas', detail: msg }),
+      {
+        status: 502,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store',
+        },
+      },
+    );
+  }
+});
     const msg = e instanceof Error ? e.message : 'Unknown error';
     console.error('[sigef-incra-proxy] upstream error', upstream.url, msg);
     return new Response(
