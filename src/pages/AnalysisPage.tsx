@@ -14,9 +14,16 @@ import { exportToWord, exportToPdf } from '@/lib/exportAnalysis';
 import BoundariesTab from '@/components/analysis/BoundariesTab';
 
 function FieldWithAiIndicator({ label, value, onChange, required, multiline }: {
-  label: string; value: string; onChange: (v: string) => void; required?: boolean; multiline?: boolean;
+  label: string; value: unknown; onChange: (v: string) => void; required?: boolean; multiline?: boolean;
 }) {
-  const hasAiValue = value && value.trim().length > 0;
+  // A IA pode devolver objetos/arrays/números para alguns campos (ex.: hipotecas
+  // como array, status como boolean). Normalizamos para string antes de usar.
+  const safeValue =
+    value == null ? ''
+    : typeof value === 'string' ? value
+    : typeof value === 'number' || typeof value === 'boolean' ? String(value)
+    : (() => { try { return JSON.stringify(value, null, 2); } catch { return String(value); } })();
+  const hasAiValue = safeValue.trim().length > 0;
   return (
     <div className="space-y-1.5">
       <div className="flex items-center gap-2">
@@ -24,9 +31,9 @@ function FieldWithAiIndicator({ label, value, onChange, required, multiline }: {
         {hasAiValue && <span title="Preenchido pela IA"><Bot className="w-3 h-3 text-primary" /></span>}
       </div>
       {multiline ? (
-        <Textarea value={value} onChange={e => onChange(e.target.value)} className="text-sm" rows={3} />
+        <Textarea value={safeValue} onChange={e => onChange(e.target.value)} className="text-sm" rows={3} />
       ) : (
-        <Input value={value} onChange={e => onChange(e.target.value)} className="text-sm h-9" />
+        <Input value={safeValue} onChange={e => onChange(e.target.value)} className="text-sm h-9" />
       )}
     </div>
   );
