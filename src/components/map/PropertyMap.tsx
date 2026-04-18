@@ -85,6 +85,9 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
   });
   const [source, setSource] = useState<GeometrySource>(dataRef.current.source);
   const { toast } = useToast();
+  // Refs para handlers chamados de dentro de listeners do Leaflet (registrados 1x).
+  const identifyRef = useRef<(lat: number, lng: number) => Promise<void>>(async () => {});
+  const loadedCarsRef = useRef<Set<string>>(new Set());
 
   useImperativeHandle(ref, () => ({
     flyToUF: (uf: string) => {
@@ -183,7 +186,7 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
 
     map.on('click', async (e: L.LeafletMouseEvent) => {
       setClickedCoord({ lat: e.latlng.lat, lng: e.latlng.lng });
-      await identifyAtPoint(e.latlng.lat, e.latlng.lng);
+      await identifyRef.current(e.latlng.lat, e.latlng.lng);
     });
 
     renderGeometry(dataRef.current);
