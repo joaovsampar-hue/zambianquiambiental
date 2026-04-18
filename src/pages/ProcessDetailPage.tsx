@@ -175,13 +175,23 @@ export default function ProcessDetailPage() {
           <TabsTrigger value="analyses"><FileText className="w-4 h-4 mr-1.5" />Matrículas</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="map">
+        <TabsContent value="map" className="space-y-4">
+          <DetectedNeighborsPanel
+            detected={detected}
+            alreadyRegistered={registeredSet}
+            onRegister={(list) => bulkInsertNeighbors.mutateAsync(list)}
+            isRegistering={bulkInsertNeighbors.isPending}
+          />
           <Card><CardContent className="p-4">
             <PropertyMap
               initialData={geometry ? (geometry as any) : undefined}
               onChange={(d) => saveGeometry.mutate(d)}
               height="600px"
               carNumber={process.car_number ?? undefined}
+              onNeighborsDetected={(list) => {
+                // Normaliza os CARs pra bater com o registeredSet (sanitizeCar = uppercase + trim).
+                setDetected(list.map(n => ({ ...n, car: sanitizeCar(n.car) })));
+              }}
               onNeighborPick={async (info) => {
                 // Inserção rápida na tabela de confrontantes — sem abrir formulário.
                 const { error } = await supabase.from('process_neighbors').insert({
@@ -197,6 +207,7 @@ export default function ProcessDetailPage() {
                   return;
                 }
                 qc.invalidateQueries({ queryKey: ['neighbors', id] });
+                qc.invalidateQueries({ queryKey: ['neighbors-cars', id] });
                 toast({ title: 'Confrontante listado', description: info.car });
               }}
             />
