@@ -134,6 +134,8 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
   // Mapa CAR → layer Leaflet do polígono vizinho. Permite re-estilizar
   // quando a seleção do painel muda, sem refazer toda a render.
   const neighborLayersRef = useRef<Map<string, L.Path>>(new Map());
+  // FeatureCollection raw dos vizinhos detectados (para exportação vetorial em PDF).
+  const neighborsFcRef = useRef<GeoJSON.FeatureCollection | null>(null);
   // Refs com versão sempre-atual das props que dependem do React state —
   // usadas dentro de handlers do popup que são registrados uma única vez.
   const selectedNeighborsRef = useRef<Set<string>>(selectedNeighbors ?? new Set());
@@ -154,6 +156,26 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     loadCarPolygon: async (car: string) => loadCar(car),
     getMap: () => mapInstance.current,
     getContainer: () => mapRef.current,
+    getRenderedFeatures: () => {
+      const gj = dataRef.current.geojson;
+      const main: GeoJSON.Feature | null = gj
+        ? (gj.type === 'Feature' ? gj : { type: 'Feature', geometry: gj.geometry ?? gj, properties: gj.properties ?? {} })
+        : null;
+      return { main, neighbors: neighborsFcRef.current };
+    },
+    setOverlayTilesVisible: (visible: boolean) => {
+      const sicar = sicarGroupRef.current;
+      const sigef = sigefGroupRef.current;
+      const map = mapInstance.current;
+      if (!map) return;
+      [sicar, sigef].forEach(group => {
+        if (!group) return;
+        group.eachLayer(l => {
+          const el = (l as any).getContainer?.() as HTMLElement | undefined;
+          if (el) el.style.visibility = visible ? '' : 'hidden';
+        });
+      });
+    },
   }), []);
 
   // Initialize map once
