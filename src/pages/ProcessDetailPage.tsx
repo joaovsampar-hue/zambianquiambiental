@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -22,6 +22,11 @@ export default function ProcessDetailPage() {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [detected, setDetected] = useState<DetectedNeighbor[]>([]);
+  const [selectedNeighbors, setSelectedNeighbors] = useState<Set<string>>(new Set());
+
+  // Sempre que a lista de detectados muda, marca por padrão somente os pendentes.
+  // Usamos chave estável (CARs ordenados) pra evitar render loop.
+  const detectedKey = detected.map(d => d.car).sort().join('|');
 
   const { data: process, isLoading } = useQuery({
     queryKey: ['process', id],
@@ -104,6 +109,18 @@ export default function ProcessDetailPage() {
     () => new Set(registeredCars.map(c => sanitizeCar(c))),
     [registeredCars],
   );
+  const registeredKey = Array.from(registeredSet).sort().join('|');
+
+  // Reseta a seleção padrão sempre que detectados ou cadastrados mudam:
+  // todos os pendentes ficam marcados; os já cadastrados, fora.
+  useEffect(() => {
+    const next = new Set<string>();
+    for (const n of detected) {
+      if (!registeredSet.has(n.car)) next.add(n.car);
+    }
+    setSelectedNeighbors(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detectedKey, registeredKey]);
 
   // Insert em lote dos vizinhos selecionados pelo usuário no painel.
   const bulkInsertNeighbors = useMutation({
@@ -179,6 +196,8 @@ export default function ProcessDetailPage() {
           <DetectedNeighborsPanel
             detected={detected}
             alreadyRegistered={registeredSet}
+            selected={selectedNeighbors}
+            onSelectedChange={setSelectedNeighbors}
             onRegister={async (list) => { await bulkInsertNeighbors.mutateAsync(list); }}
             isRegistering={bulkInsertNeighbors.isPending}
           />
@@ -188,6 +207,16 @@ export default function ProcessDetailPage() {
               onChange={(d) => saveGeometry.mutate(d)}
               height="600px"
               carNumber={process.car_number ?? undefined}
+              selectedNeighbors={selectedNeighbors}
+              onNeighborToggle={(car) => {
+                const sanitized = sanitizeCar(car);
+                setSelectedNeighbors(prev => {
+                  const next = new Set(prev);
+                  if (next.has(sanitized)) next.delete(sanitized);
+                  else next.add(sanitized);
+                  return next;
+                });
+              }}
               onNeighborsDetected={(list) => {
                 // Normaliza os CARs pra bater com o registeredSet (sanitizeCar = uppercase + trim).
                 setDetected(list.map(n => ({ ...n, car: sanitizeCar(n.car) })));

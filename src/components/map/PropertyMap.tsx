@@ -62,12 +62,16 @@ interface Props {
   onNeighborPick?: (info: { car: string; area: number; municipio: string; uf: string }) => void;
   /** Disparado quando os confrontantes diretos (TOUCHES) são detectados automaticamente após o carregamento do CAR principal. */
   onNeighborsDetected?: (neighbors: Array<{ car: string; area: number; municipio: string; uf: string }>) => void;
+  /** Conjunto de CARs marcados no painel de seleção — usado pra destacar polígonos selecionados no mapa. */
+  selectedNeighbors?: Set<string>;
+  /** Alterna a marcação de um CAR no painel ao clicar no botão "Marcar/Desmarcar do painel" do popup. */
+  onNeighborToggle?: (car: string) => void;
 }
 
 const BASE_LAYER_KEY = 'geodoc.map.baseLayer';
 
 const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
-  { initialData, onChange, height = '500px', readOnly, carNumber, onCarLoaded, onNeighborPick, onNeighborsDetected },
+  { initialData, onChange, height = '500px', readOnly, carNumber, onCarLoaded, onNeighborPick, onNeighborsDetected, selectedNeighbors, onNeighborToggle },
   ref,
 ) {
   const mapRef = useRef<HTMLDivElement>(null);
@@ -93,6 +97,15 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
   // Refs para handlers chamados de dentro de listeners do Leaflet (registrados 1x).
   const identifyRef = useRef<(lat: number, lng: number) => Promise<void>>(async () => {});
   const loadedCarsRef = useRef<Set<string>>(new Set());
+  // Mapa CAR → layer Leaflet do polígono vizinho. Permite re-estilizar
+  // quando a seleção do painel muda, sem refazer toda a render.
+  const neighborLayersRef = useRef<Map<string, L.Path>>(new Map());
+  // Refs com versão sempre-atual das props que dependem do React state —
+  // usadas dentro de handlers do popup que são registrados uma única vez.
+  const selectedNeighborsRef = useRef<Set<string>>(selectedNeighbors ?? new Set());
+  const onNeighborToggleRef = useRef<typeof onNeighborToggle>(onNeighborToggle);
+  selectedNeighborsRef.current = selectedNeighbors ?? new Set();
+  onNeighborToggleRef.current = onNeighborToggle;
 
   useImperativeHandle(ref, () => ({
     flyToUF: (uf: string) => {
@@ -295,12 +308,31 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     }
   };
 
+  // Reaplica estilo dos polígonos vizinhos quando o conjunto de selecionados muda.
+  // Sem isso, a borda azul não destaca os polígonos marcados/desmarcados via popup.
+  useEffect(() => {
+    neighborLayersRef.current.forEach((layer, car) => {
+      layer.setStyle(styleForNeighbor(car));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedNeighbors]);
+
+  // Estilo aplicado a um polígono vizinho conforme estado de seleção atual.
+  // Selecionado = preenchimento mais forte + borda mais grossa, dando feedback
+  // visual de "este vai entrar no cadastro em lote".
+  const styleForNeighbor = (car: string): L.PathOptions => {
+    const isSelected = selectedNeighborsRef.current.has(sanitizeCar(car));
+    return isSelected
+      ? { color: '#1D4ED8', weight: 2.5, fillColor: '#3B82F6', fillOpacity: 0.45 }
+      : { color: '#3B82F6', weight: 1, fillColor: '#85B7EB', fillOpacity: 0.15 };
+  };
+
   const renderNeighbors = (fc: GeoJSON.FeatureCollection, mainCar: string) => {
     const lg = neighborsLayer.current;
     if (!lg) return;
     lg.clearLayers();
+    neighborLayersRef.current.clear();
     L.geoJSON(fc, {
-      style: { color: '#3B82F6', weight: 1, fillColor: '#85B7EB', fillOpacity: 0.15 },
       onEachFeature: (feat, layer) => {
         const p = feat.properties as any;
         if (!p?.cod_imovel || p.cod_imovel === mainCar) return;
@@ -308,27 +340,58 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
         const area = Number(p.area ?? 0);
         const municipio = String(p.municipio ?? '');
         const uf = String(p.uf ?? '');
-        const btnId = `neighbor-add-${car.replace(/[^A-Za-z0-9]/g, '')}`;
-        const showBtn = !!onNeighborPick;
-        const html = `
-          <div class="text-xs space-y-1.5" style="min-width:240px">
-            <div class="font-semibold">Imóvel vizinho (SICAR)</div>
-            <div><span class="text-muted-foreground">CAR:</span> <span class="font-mono break-all">${car}</span></div>
-            <div><span class="text-muted-foreground">Área total:</span> ${area.toFixed(2)} ha</div>
-            <div><span class="text-muted-foreground">Município:</span> ${municipio}${uf ? '/' + uf : ''}</div>
-            ${showBtn ? `<div class="pt-1"><button id="${btnId}" class="px-2 py-1 rounded bg-secondary text-secondary-foreground text-xs border border-border">+ Listar como confrontante</button></div>` : ''}
-          </div>`;
-        layer.bindPopup(html);
-        if (showBtn) {
-          layer.on('popupopen', () => {
-            setTimeout(() => {
-              document.getElementById(btnId)?.addEventListener('click', () => {
+        const sanitized = sanitizeCar(car);
+        const path = layer as L.Path;
+        path.setStyle(styleForNeighbor(car));
+        neighborLayersRef.current.set(sanitized, path);
+
+        const addBtnId = `neighbor-add-${sanitized.replace(/[^A-Za-z0-9]/g, '')}`;
+        const toggleBtnId = `neighbor-toggle-${sanitized.replace(/[^A-Za-z0-9]/g, '')}`;
+        const showAddBtn = !!onNeighborPick;
+        const showToggleBtn = !!onNeighborToggleRef.current;
+
+        // Re-renderiza o conteúdo do popup a cada abertura — o estado de
+        // seleção muda dinamicamente e o label do botão precisa refletir isso.
+        const buildHtml = () => {
+          const isSelected = selectedNeighborsRef.current.has(sanitized);
+          const toggleLabel = isSelected ? '☑ Desmarcar do painel' : '☐ Marcar no painel';
+          const toggleClass = isSelected
+            ? 'bg-primary text-primary-foreground'
+            : 'bg-secondary text-secondary-foreground border border-border';
+          return `
+            <div class="text-xs space-y-1.5" style="min-width:240px">
+              <div class="font-semibold">Imóvel vizinho (SICAR)</div>
+              <div><span class="text-muted-foreground">CAR:</span> <span class="font-mono break-all">${car}</span></div>
+              <div><span class="text-muted-foreground">Área total:</span> ${area.toFixed(2)} ha</div>
+              <div><span class="text-muted-foreground">Município:</span> ${municipio}${uf ? '/' + uf : ''}</div>
+              <div class="flex flex-wrap gap-1.5 pt-1">
+                ${showToggleBtn ? `<button id="${toggleBtnId}" class="px-2 py-1 rounded ${toggleClass} text-xs">${toggleLabel}</button>` : ''}
+                ${showAddBtn ? `<button id="${addBtnId}" class="px-2 py-1 rounded bg-secondary text-secondary-foreground text-xs border border-border">+ Listar como confrontante</button>` : ''}
+              </div>
+            </div>`;
+        };
+
+        layer.bindPopup(buildHtml);
+        layer.on('popupopen', () => {
+          // Reescreve o HTML pra refletir o estado atual de seleção (Leaflet
+          // só chama o builder uma vez quando bindPopup recebe função, mas
+          // aqui forçamos atualização imediata).
+          (layer as any).getPopup?.()?.setContent(buildHtml());
+          setTimeout(() => {
+            if (showToggleBtn) {
+              document.getElementById(toggleBtnId)?.addEventListener('click', () => {
+                onNeighborToggleRef.current?.(sanitized);
+                (layer as any).closePopup?.();
+              });
+            }
+            if (showAddBtn) {
+              document.getElementById(addBtnId)?.addEventListener('click', () => {
                 (layer as any).closePopup?.();
                 onNeighborPick?.({ car, area, municipio, uf });
               });
-            }, 0);
-          });
-        }
+            }
+          }, 0);
+        });
       },
     }).addTo(lg);
   };

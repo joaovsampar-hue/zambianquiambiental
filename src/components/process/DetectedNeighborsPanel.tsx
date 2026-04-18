@@ -8,8 +8,11 @@
  *
  * Os já cadastrados (mesmo CAR já inserido em `process_neighbors`) aparecem
  * em destaque verde + checkbox desabilitado — evita duplicatas.
+ *
+ * O estado de seleção é **controlado pelo pai** para que o mapa também possa
+ * marcar/desmarcar via popup nos polígonos azuis.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -27,6 +30,10 @@ interface Props {
   detected: DetectedNeighbor[];
   /** CARs que já estão cadastrados como confrontantes deste processo. */
   alreadyRegistered: Set<string>;
+  /** Conjunto controlado de CARs marcados pra cadastro em lote. */
+  selected: Set<string>;
+  /** Substitui o conjunto inteiro (uso interno + sync com mapa). */
+  onSelectedChange: (next: Set<string>) => void;
   /** Disparado quando o usuário clica em "Cadastrar selecionados". */
   onRegister: (neighbors: DetectedNeighbor[]) => Promise<void> | void;
   isRegistering?: boolean;
@@ -35,25 +42,11 @@ interface Props {
 export default function DetectedNeighborsPanel({
   detected,
   alreadyRegistered,
+  selected,
+  onSelectedChange,
   onRegister,
   isRegistering,
 }: Props) {
-  // Marca por padrão somente os que ainda NÃO estão cadastrados.
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-
-  // Sempre que a lista de detectados (ou os já cadastrados) muda,
-  // recalcula a seleção padrão. `setSelected` em useEffect com dep estável
-  // evita render loop.
-  useEffect(() => {
-    const next = new Set<string>();
-    for (const n of detected) {
-      if (!alreadyRegistered.has(n.car)) next.add(n.car);
-    }
-    setSelected(next);
-    // alreadyRegistered é Set — comparamos por size + conteúdo serializado pra evitar reset desnecessário
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [detected.map(d => d.car).join('|'), Array.from(alreadyRegistered).sort().join('|')]);
-
   const pending = useMemo(
     () => detected.filter(n => !alreadyRegistered.has(n.car)),
     [detected, alreadyRegistered],
@@ -66,25 +59,21 @@ export default function DetectedNeighborsPanel({
   if (detected.length === 0) return null;
 
   const toggle = (car: string) => {
-    setSelected(prev => {
-      const next = new Set(prev);
-      if (next.has(car)) next.delete(car);
-      else next.add(car);
-      return next;
-    });
+    const next = new Set(selected);
+    if (next.has(car)) next.delete(car);
+    else next.add(car);
+    onSelectedChange(next);
   };
 
   const toggleAllPending = () => {
     const allSelected = pending.length > 0 && pending.every(n => selected.has(n.car));
-    setSelected(prev => {
-      const next = new Set(prev);
-      if (allSelected) {
-        for (const n of pending) next.delete(n.car);
-      } else {
-        for (const n of pending) next.add(n.car);
-      }
-      return next;
-    });
+    const next = new Set(selected);
+    if (allSelected) {
+      for (const n of pending) next.delete(n.car);
+    } else {
+      for (const n of pending) next.add(n.car);
+    }
+    onSelectedChange(next);
   };
 
   const handleRegister = async () => {
