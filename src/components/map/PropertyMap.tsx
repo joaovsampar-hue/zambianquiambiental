@@ -66,6 +66,8 @@ interface Props {
   selectedNeighbors?: Set<string>;
   /** Alterna a marcação de um CAR no painel ao clicar no botão "Marcar/Desmarcar do painel" do popup. */
   onNeighborToggle?: (car: string) => void;
+  /** CARs já cadastrados como confrontantes — pintados em verde (e não permitem cadastro duplicado). */
+  registeredNeighbors?: Set<string>;
 }
 
 const BASE_LAYER_KEY = 'geodoc.map.baseLayer';
