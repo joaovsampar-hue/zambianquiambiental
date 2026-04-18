@@ -196,6 +196,8 @@ export default function ProcessDetailPage() {
           <DetectedNeighborsPanel
             detected={detected}
             alreadyRegistered={registeredSet}
+            selected={selectedNeighbors}
+            onSelectedChange={setSelectedNeighbors}
             onRegister={async (list) => { await bulkInsertNeighbors.mutateAsync(list); }}
             isRegistering={bulkInsertNeighbors.isPending}
           />
@@ -205,6 +207,16 @@ export default function ProcessDetailPage() {
               onChange={(d) => saveGeometry.mutate(d)}
               height="600px"
               carNumber={process.car_number ?? undefined}
+              selectedNeighbors={selectedNeighbors}
+              onNeighborToggle={(car) => {
+                const sanitized = sanitizeCar(car);
+                setSelectedNeighbors(prev => {
+                  const next = new Set(prev);
+                  if (next.has(sanitized)) next.delete(sanitized);
+                  else next.add(sanitized);
+                  return next;
+                });
+              }}
               onNeighborsDetected={(list) => {
                 // Normaliza os CARs pra bater com o registeredSet (sanitizeCar = uppercase + trim).
                 setDetected(list.map(n => ({ ...n, car: sanitizeCar(n.car) })));
