@@ -110,17 +110,33 @@ export async function fetchCarPolygon(car: string): Promise<CarFetchResult | Car
 }
 
 /**
- * Busca todos os imóveis vizinhos dentro de um bbox expandido.
- * Útil pra exibir confrontantes potenciais ao redor do imóvel principal.
+ * Converte uma geometria GeoJSON (Polygon/MultiPolygon) para WKT.
+ * Necessário para usar operadores espaciais (TOUCHES/INTERSECTS) no CQL_FILTER do GeoServer.
  */
-export async function fetchNeighborsInBbox(
+function geometryToWkt(geom: GeoJSON.Polygon | GeoJSON.MultiPolygon): string {
+  const ring = (r: GeoJSON.Position[]) =>
+    '(' + r.map(([lng, lat]) => `${lng} ${lat}`).join(', ') + ')';
+  const poly = (p: GeoJSON.Position[][]) => '(' + p.map(ring).join(', ') + ')';
+  if (geom.type === 'Polygon') return `POLYGON ${poly(geom.coordinates)}`;
+  return `MULTIPOLYGON (${geom.coordinates.map(poly).join(', ')})`;
+}
+
+/**
+ * Busca apenas os imóveis que **fazem confronto direto** com a geometria informada
+ * (compartilham fronteira — operador espacial TOUCHES). Não usa raio/bbox.
+ * Retorna FeatureCollection pronto pra renderizar no Leaflet.
+ */
+export async function fetchTouchingNeighbors(
   uf: SicarUF,
-  bbox: [number, number, number, number], // [minLng, minLat, maxLng, maxLat]
-  excludeCar?: string,
-  maxFeatures = 200,
+  geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon,
+  excludeCar: string,
+  maxFeatures = 100,
 ): Promise<GeoJSON.FeatureCollection | null> {
-  const [minLng, minLat, maxLng, maxLat] = bbox;
-  // WFS 2.0 + EPSG:4326 → ordem lat/lng. GeoServer aceita BBOX com srsName explícito.
+  const wkt = geometryToWkt(geometry);
+  // TOUCHES: fronteiras se tocam mas interiores não se intersectam — confrontantes diretos.
+  // Acrescentamos INTERSECTS como fallback para casos de pequenas sobreposições topológicas
+  // (comuns no SICAR por imprecisão de digitalização).
+  const cql = `(TOUCHES(geo_area_imovel, ${wkt}) OR INTERSECTS(geo_area_imovel, ${wkt})) AND cod_imovel<>'${sanitizeCar(excludeCar)}'`;
   const params = new URLSearchParams({
     service: 'WFS',
     version: '2.0.0',
@@ -129,16 +145,55 @@ export async function fetchNeighborsInBbox(
     outputFormat: 'application/json',
     srsName: 'EPSG:4326',
     count: String(maxFeatures),
-    BBOX: `${minLat},${minLng},${maxLat},${maxLng},EPSG:4326`,
+    CQL_FILTER: cql,
   });
-  if (excludeCar) {
-    params.set('CQL_FILTER', `cod_imovel<>'${sanitizeCar(excludeCar)}' AND BBOX(geo_area_imovel,${minLat},${minLng},${maxLat},${maxLng})`);
-    params.delete('BBOX');
-  }
   try {
     const resp = await fetch(`${SICAR_WFS}?${params.toString()}`);
     if (!resp.ok) return null;
     return (await resp.json()) as GeoJSON.FeatureCollection;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Identifica o imóvel SICAR (se houver) que contém um ponto clicado no mapa.
+ * Usa WFS GetFeature + CQL INTERSECTS — mais confiável que WMS GetFeatureInfo
+ * quando se trabalha com proxy.
+ */
+export async function fetchFeatureAtPoint(
+  uf: SicarUF,
+  lat: number,
+  lng: number,
+): Promise<CarFeature | null> {
+  const cql = `INTERSECTS(geo_area_imovel, POINT(${lng} ${lat}))`;
+  const params = new URLSearchParams({
+    service: 'WFS',
+    version: '2.0.0',
+    request: 'GetFeature',
+    typeNames: sicarLayerForUF(uf),
+    outputFormat: 'application/json',
+    srsName: 'EPSG:4326',
+    count: '1',
+    CQL_FILTER: cql,
+  });
+  try {
+    const resp = await fetch(`${SICAR_WFS}?${params.toString()}`);
+    if (!resp.ok) return null;
+    const json = (await resp.json()) as GeoJSON.FeatureCollection;
+    const f = json.features?.[0];
+    if (!f) return null;
+    const props = f.properties as Record<string, unknown>;
+    return {
+      cod_imovel: String(props.cod_imovel ?? ''),
+      area: Number(props.area ?? 0),
+      municipio: String(props.municipio ?? ''),
+      uf: String(props.uf ?? uf),
+      condicao: (props.condicao as string) ?? null,
+      status_imovel: String(props.status_imovel ?? ''),
+      tipo_imovel: String(props.tipo_imovel ?? ''),
+      geometry: f.geometry as GeoJSON.MultiPolygon | GeoJSON.Polygon,
+    };
   } catch {
     return null;
   }
