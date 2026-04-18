@@ -22,6 +22,11 @@ export default function ProcessDetailPage() {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [detected, setDetected] = useState<DetectedNeighbor[]>([]);
+  const [selectedNeighbors, setSelectedNeighbors] = useState<Set<string>>(new Set());
+
+  // Sempre que a lista de detectados muda, marca por padrão somente os pendentes.
+  // Usamos chave estável (CARs ordenados) pra evitar render loop.
+  const detectedKey = detected.map(d => d.car).sort().join('|');
 
   const { data: process, isLoading } = useQuery({
     queryKey: ['process', id],
