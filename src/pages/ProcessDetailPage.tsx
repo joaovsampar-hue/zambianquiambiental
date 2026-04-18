@@ -142,7 +142,13 @@ export default function ProcessDetailPage() {
 
         <TabsContent value="neighbors">
           <Card><CardContent className="p-4">
-            <NeighborsList processId={id!} clientId={process.client.id} />
+            <NeighborsList
+              processId={id!}
+              clientId={process.client.id}
+              clientName={process.client.name}
+              processNumber={process.process_number}
+              carNumber={process.car_number ?? undefined}
+            />
           </CardContent></Card>
         </TabsContent>
 
