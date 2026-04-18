@@ -42,8 +42,8 @@ interface Props {
   readOnly?: boolean;
 }
 
-// Proxy WMS para contornar CORS do SICAR (geoserver.car.gov.br)
-const SICAR_WMS_PROXY = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/sicar-wms-proxy`;
+// Chave de persistência da camada base preferida do usuário
+const BASE_LAYER_KEY = 'geodoc.map.baseLayer';
 
 const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
   { initialData, onChange, height = '500px', readOnly },
