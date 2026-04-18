@@ -359,18 +359,26 @@ export default function ProcessDetailPage() {
             ) : (
               <div className="space-y-2">
                 {analyses.map((a: any) => (
-                  <Link key={a.id} to={`/analysis/${a.id}`}
+                  <div key={a.id}
                     className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-accent/50">
-                    <div>
+                    <Link to={`/analysis/${a.id}`} className="flex-1 min-w-0">
                       <p className="text-sm font-medium">Análise v{a.version}</p>
                       <p className="text-xs text-muted-foreground">{new Date(a.created_at).toLocaleString('pt-BR')}</p>
+                    </Link>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs px-2 py-1 rounded-full ${
+                        a.status === 'completed' ? 'bg-success/15 text-success' :
+                        a.status === 'error' ? 'bg-destructive/15 text-destructive' :
+                        'bg-info/15 text-info'
+                      }`}>{a.status}</span>
+                      <DeleteButton
+                        iconOnly
+                        title="Excluir análise?"
+                        description={`A análise v${a.version} será removida permanentemente.`}
+                        onConfirm={async () => { await deleteAnalysis.mutateAsync(a.id); }}
+                      />
                     </div>
-                    <span className={`text-xs px-2 py-1 rounded-full ${
-                      a.status === 'completed' ? 'bg-success/15 text-success' :
-                      a.status === 'error' ? 'bg-destructive/15 text-destructive' :
-                      'bg-info/15 text-info'
-                    }`}>{a.status}</span>
-                  </Link>
+                  </div>
                 ))}
               </div>
             )}
