@@ -704,6 +704,31 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
           {fullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
           <span className="ml-1.5 hidden sm:inline">{fullscreen ? 'Reduzir' : 'Expandir'}</span>
         </Button>
+        {neighborStatus !== 'idle' && (
+          <div className="absolute top-2 right-14 z-[400]">
+            {neighborStatus === 'loading' && (
+              <Badge className="bg-info/15 text-info border-info/30 shadow-md gap-1.5">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                Buscando confrontantes…
+              </Badge>
+            )}
+            {neighborStatus === 'done' && (
+              <Badge className="bg-success/15 text-success border-success/30 shadow-md">
+                {neighborCount} confrontante{neighborCount === 1 ? '' : 's'} detectado{neighborCount === 1 ? '' : 's'}
+              </Badge>
+            )}
+            {neighborStatus === 'empty' && (
+              <Badge className="bg-muted text-muted-foreground border-border shadow-md">
+                Nenhum confrontante detectado
+              </Badge>
+            )}
+            {neighborStatus === 'error' && (
+              <Badge className="bg-destructive/15 text-destructive border-destructive/30 shadow-md">
+                Falha ao consultar SICAR
+              </Badge>
+            )}
+          </div>
+        )}
       </div>
 
       {!readOnly && (
