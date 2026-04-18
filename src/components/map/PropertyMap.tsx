@@ -544,6 +544,7 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     if (!lg) return;
     lg.clearLayers();
     neighborLayersRef.current.clear();
+    neighborsFcRef.current = fc;
     L.geoJSON(fc, {
       onEachFeature: (feat, layer) => {
         const p = feat.properties as any;
@@ -879,6 +880,7 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     update({ geojson: null, kml_raw: null, coordinates_text: null, reference_lat: null, reference_lng: null, source: null });
     setCoords('');
     neighborsLayer.current?.clearLayers();
+    neighborsFcRef.current = null;
     renderGeometry(dataRef.current);
     if (mapInstance.current) mapInstance.current.setView([-15.78, -47.93], 4);
   };
