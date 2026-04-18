@@ -423,29 +423,15 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
     domW, domH,
   };
 
-  // Desenha vetores DENTRO do clipping path do mapa — qualquer geometria
-  // que extrapole o retângulo simplesmente não aparece (sem faixas diagonais).
+  // Desenha APENAS o imóvel do cliente (verde). Os vizinhos vivem na listagem,
+  // não no mapa — basta o usuário ver onde fica o imóvel e os polígonos
+  // certificados (SIGEF) que o basemap WMS já mostra.
   withMapClip(pdf, MARGIN, MARGIN, MAP_W, MAP_H, () => {
     const proj = makeProjector(leafletMap, leafletEl, MARGIN, MARGIN, MAP_W, MAP_H, cropMeta);
-    const mainCar = (mainFeature?.properties as any)?.cod_imovel;
-
-    // Vizinhos primeiro (vermelho).
-    neighborsFc?.features?.forEach(feat => {
-      const car = (feat.properties as any)?.cod_imovel;
-      if (mainCar && car && car === mainCar) return;
-      drawGeoFeature(pdf, feat, proj, {
-        stroke: [180, 30, 35],
-        strokeWidth: 0.4,
-        fill: [220, 60, 60],
-        fillOpacity: 0.18,
-      });
-    });
-
-    // Imóvel em estudo (verde, traço grosso) — por cima.
     if (mainFeature) {
       drawGeoFeature(pdf, mainFeature, proj, {
         stroke: [40, 130, 60],
-        strokeWidth: 0.9,
+        strokeWidth: 1.0,
         fill: [120, 200, 130],
         fillOpacity: 0.22,
       });
