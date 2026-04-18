@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useImperativeHandle, useRef, useState, forwardRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { kml as kmlToGeoJson } from '@tmcw/togeojson';
@@ -8,7 +8,8 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
-import { Upload, MapPin, Layers, Trash2 } from 'lucide-react';
+import { Upload, MapPin, Trash2 } from 'lucide-react';
+import { UF_CENTERS } from '@/lib/processStages';
 
 // Fix default Leaflet marker icons in bundler
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -27,6 +28,13 @@ export interface MapData {
   source: string | null;
 }
 
+export interface PropertyMapHandle {
+  /** Centraliza o mapa no centróide da UF (zoom estadual). Usado quando o CAR é digitado. */
+  flyToUF: (uf: string) => void;
+  /** Centraliza em coordenadas WGS84. */
+  flyTo: (lat: number, lng: number, zoom?: number) => void;
+}
+
 interface Props {
   initialData?: Partial<MapData>;
   onChange: (data: MapData) => void;
@@ -34,17 +42,20 @@ interface Props {
   readOnly?: boolean;
 }
 
-export default function PropertyMap({ initialData, onChange, height = '500px', readOnly }: Props) {
+// Proxy WMS para contornar CORS do SICAR (geoserver.car.gov.br)
+const SICAR_WMS_PROXY = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/sicar-wms-proxy`;
+
+const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
+  { initialData, onChange, height = '500px', readOnly },
+  ref,
+) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<L.Map | null>(null);
   const layerGroup = useRef<L.LayerGroup | null>(null);
-  const sicarLayer = useRef<L.TileLayer.WMS | null>(null);
-  const [showSicar, setShowSicar] = useState(true);
-  const [baseLayer, setBaseLayer] = useState<'osm' | 'sat'>('sat');
-  const baseLayerRef = useRef<L.TileLayer | null>(null);
   const [coords, setCoords] = useState(initialData?.coordinates_text ?? '');
   const [refLat, setRefLat] = useState(initialData?.reference_lat?.toString() ?? '');
   const [refLng, setRefLng] = useState(initialData?.reference_lng?.toString() ?? '');
+  const [clickedCoord, setClickedCoord] = useState<{ lat: number; lng: number } | null>(null);
   const dataRef = useRef<MapData>({
     geojson: initialData?.geojson ?? null,
     reference_lat: initialData?.reference_lat ?? null,
@@ -55,37 +66,100 @@ export default function PropertyMap({ initialData, onChange, height = '500px', r
   });
   const { toast } = useToast();
 
+  useImperativeHandle(ref, () => ({
+    flyToUF: (uf: string) => {
+      const c = UF_CENTERS[uf.toUpperCase()];
+      if (c && mapInstance.current) mapInstance.current.flyTo([c[0], c[1]], c[2], { duration: 0.8 });
+    },
+    flyTo: (lat: number, lng: number, zoom = 14) => {
+      mapInstance.current?.flyTo([lat, lng], zoom, { duration: 0.8 });
+    },
+  }), []);
+
   // Initialize map once
   useEffect(() => {
     if (!mapRef.current || mapInstance.current) return;
 
+    // Leaflet usa por padrão CRS.EPSG3857 (Web Mercator) para tiles, MAS as coordenadas
+    // de entrada/saída no Leaflet sempre são WGS84 (lat/lng EPSG:4326).
+    // Isso garante compatibilidade com Google Earth, SIGEF e GPS.
     const map = L.map(mapRef.current, {
       center: [-15.78, -47.93], // Brasil
-      zoom: 5,
+      zoom: 4,
       zoomControl: true,
     });
     mapInstance.current = map;
 
-    const sat = L.tileLayer(
+    // ===== CAMADAS BASE (mutuamente exclusivas) =====
+    const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors',
+      maxZoom: 19,
+    });
+    const esriImagery = L.tileLayer(
       'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-      { attribution: '© Esri', maxZoom: 19 }
+      {
+        attribution:
+          'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, CNES/Airbus DS, USDA, USGS, AeroGRID, IGN, GIS User Community',
+        maxZoom: 19,
+      },
     );
-    sat.addTo(map);
-    baseLayerRef.current = sat;
+    const esriStreets = L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+      { attribution: 'Tiles © Esri', maxZoom: 19 },
+    );
 
-    // Camada WMS oficial do SICAR (imóveis CAR)
-    const sicar = L.tileLayer.wms('https://geoserver.car.gov.br/geoserver/sicar/wms', {
-      layers: 'sicar:area_imovel',
+    // Satélite Esri por padrão (qualidade Maxar)
+    esriImagery.addTo(map);
+
+    // ===== OVERLAYS WMS DO SICAR (via proxy para evitar CORS) =====
+    const wmsCommon = {
       format: 'image/png',
       transparent: true,
-      version: '1.1.0',
+      version: '1.1.1',
+      tileSize: 256,
       attribution: 'SICAR/SFB',
+      maxZoom: 20,
       opacity: 0.6,
+    };
+    const sicarImoveis = L.tileLayer.wms(SICAR_WMS_PROXY, {
+      ...wmsCommon,
+      layers: 'sicar:area_imovel',
     });
-    sicar.addTo(map);
-    sicarLayer.current = sicar;
+    const sicarSigef = L.tileLayer.wms(SICAR_WMS_PROXY, {
+      ...wmsCommon,
+      layers: 'sicar:sigef_imoveis_certificados',
+    });
+    const sicarSnci = L.tileLayer.wms(SICAR_WMS_PROXY, {
+      ...wmsCommon,
+      layers: 'sicar:snci',
+    });
+
+    // Por padrão, mostra a camada principal de imóveis CAR
+    sicarImoveis.addTo(map);
+
+    // Painel de controle de camadas (canto superior direito)
+    L.control
+      .layers(
+        {
+          'Satélite (Esri/Maxar)': esriImagery,
+          'Mapa (OpenStreetMap)': osm,
+          'Ruas (Esri Streets)': esriStreets,
+        },
+        {
+          'Imóveis CAR (SICAR)': sicarImoveis,
+          'Certificados SIGEF': sicarSigef,
+          'SNCI Brasil': sicarSnci,
+        },
+        { position: 'topright', collapsed: false },
+      )
+      .addTo(map);
 
     layerGroup.current = L.layerGroup().addTo(map);
+
+    // Exibir coordenadas WGS84 ao clicar no mapa
+    map.on('click', (e: L.LeafletMouseEvent) => {
+      setClickedCoord({ lat: e.latlng.lat, lng: e.latlng.lng });
+    });
 
     // Render initial geometry
     renderGeometry(dataRef.current);
@@ -96,30 +170,6 @@ export default function PropertyMap({ initialData, onChange, height = '500px', r
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Toggle SICAR layer
-  useEffect(() => {
-    const map = mapInstance.current;
-    const layer = sicarLayer.current;
-    if (!map || !layer) return;
-    if (showSicar) layer.addTo(map);
-    else map.removeLayer(layer);
-  }, [showSicar]);
-
-  // Switch base layer
-  useEffect(() => {
-    const map = mapInstance.current;
-    if (!map || !baseLayerRef.current) return;
-    map.removeLayer(baseLayerRef.current);
-    const url =
-      baseLayer === 'osm'
-        ? 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
-        : 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
-    const attr = baseLayer === 'osm' ? '© OpenStreetMap' : '© Esri';
-    const newBase = L.tileLayer(url, { attribution: attr, maxZoom: 19 });
-    newBase.addTo(map);
-    baseLayerRef.current = newBase;
-  }, [baseLayer]);
 
   const update = (next: Partial<MapData>) => {
     dataRef.current = { ...dataRef.current, ...next };
@@ -156,16 +206,17 @@ export default function PropertyMap({ initialData, onChange, height = '500px', r
     try {
       const text = await file.text();
       let geo: any;
-      if (file.name.toLowerCase().endsWith('.kml')) {
+      const lower = file.name.toLowerCase();
+      if (lower.endsWith('.kml')) {
         const dom = new DOMParser().parseFromString(text, 'text/xml');
         geo = kmlToGeoJson(dom);
-      } else if (file.name.toLowerCase().endsWith('.geojson') || file.name.toLowerCase().endsWith('.json')) {
+      } else if (lower.endsWith('.geojson') || lower.endsWith('.json')) {
         geo = JSON.parse(text);
       } else {
         toast({ title: 'Formato não suportado', description: 'Envie .kml, .geojson ou .json', variant: 'destructive' });
         return;
       }
-      update({ geojson: geo, kml_raw: file.name.endsWith('.kml') ? text : null, source: 'upload' });
+      update({ geojson: geo, kml_raw: lower.endsWith('.kml') ? text : null, source: 'upload' });
       renderGeometry(dataRef.current);
       toast({ title: 'Geometria carregada' });
     } catch (err: any) {
@@ -185,7 +236,6 @@ export default function PropertyMap({ initialData, onChange, height = '500px', r
   };
 
   const handleApplyCoordinates = () => {
-    // Parse: lines of "lat,lng" or "lat lng" → polygon
     try {
       const points = coords
         .split(/\n|;/)
@@ -197,7 +247,6 @@ export default function PropertyMap({ initialData, onChange, height = '500px', r
           return [parts[1], parts[0]] as [number, number]; // GeoJSON é [lng,lat]
         });
       if (points.length < 3) throw new Error('Mínimo 3 pontos para um polígono');
-      // Fechar o anel
       const ring = [...points, points[0]];
       const geo = {
         type: 'Feature',
@@ -218,79 +267,66 @@ export default function PropertyMap({ initialData, onChange, height = '500px', r
     setRefLat('');
     setRefLng('');
     renderGeometry(dataRef.current);
-    if (mapInstance.current) mapInstance.current.setView([-15.78, -47.93], 5);
+    if (mapInstance.current) mapInstance.current.setView([-15.78, -47.93], 4);
   };
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="flex rounded-md border border-border overflow-hidden text-xs">
-          <button
-            onClick={() => setBaseLayer('sat')}
-            className={`px-3 py-1.5 ${baseLayer === 'sat' ? 'bg-primary text-primary-foreground' : 'bg-background'}`}
-          >
-            Satélite
-          </button>
-          <button
-            onClick={() => setBaseLayer('osm')}
-            className={`px-3 py-1.5 ${baseLayer === 'osm' ? 'bg-primary text-primary-foreground' : 'bg-background'}`}
-          >
-            Mapa
-          </button>
-        </div>
-        <Button
-          type="button"
-          variant={showSicar ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setShowSicar(s => !s)}
-        >
-          <Layers className="w-4 h-4 mr-1.5" /> Camada CAR
-        </Button>
-        {!readOnly && (
-          <Button type="button" variant="outline" size="sm" onClick={handleClear}>
-            <Trash2 className="w-4 h-4 mr-1.5" /> Limpar
-          </Button>
-        )}
-      </div>
-
       <div ref={mapRef} style={{ height, width: '100%' }} className="rounded-lg border border-border z-0" />
 
+      {clickedCoord && (
+        <div className="flex items-center justify-between text-xs px-3 py-1.5 bg-muted/50 rounded-md font-mono">
+          <span className="text-muted-foreground">Coordenada (WGS84):</span>
+          <span>{clickedCoord.lat.toFixed(6)}, {clickedCoord.lng.toFixed(6)}</span>
+        </div>
+      )}
+
       {!readOnly && (
-        <Tabs defaultValue="kml" className="w-full">
-          <TabsList className="grid grid-cols-3 w-full">
-            <TabsTrigger value="kml"><Upload className="w-4 h-4 mr-1.5" />KML/GeoJSON</TabsTrigger>
-            <TabsTrigger value="coords">Coordenadas</TabsTrigger>
-            <TabsTrigger value="ref"><MapPin className="w-4 h-4 mr-1.5" />Ponto ref.</TabsTrigger>
-          </TabsList>
-          <TabsContent value="kml" className="space-y-2">
-            <Label>Importar polígono (.kml, .geojson)</Label>
-            <Input type="file" accept=".kml,.geojson,.json" onChange={handleKmlUpload} />
-          </TabsContent>
-          <TabsContent value="coords" className="space-y-2">
-            <Label>Coordenadas (uma por linha: latitude, longitude)</Label>
-            <Textarea
-              rows={6}
-              placeholder="-15.78, -47.93&#10;-15.79, -47.92&#10;-15.80, -47.94"
-              value={coords}
-              onChange={e => setCoords(e.target.value)}
-            />
-            <Button type="button" size="sm" onClick={handleApplyCoordinates}>Criar polígono</Button>
-          </TabsContent>
-          <TabsContent value="ref" className="space-y-2">
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <Label>Latitude</Label>
-                <Input value={refLat} onChange={e => setRefLat(e.target.value)} placeholder="-15.78" />
+        <>
+          <div className="flex justify-end">
+            <Button type="button" variant="outline" size="sm" onClick={handleClear}>
+              <Trash2 className="w-4 h-4 mr-1.5" /> Limpar geometria
+            </Button>
+          </div>
+
+          <Tabs defaultValue="kml" className="w-full">
+            <TabsList className="grid grid-cols-3 w-full">
+              <TabsTrigger value="kml"><Upload className="w-4 h-4 mr-1.5" />KML/GeoJSON</TabsTrigger>
+              <TabsTrigger value="coords">Coordenadas</TabsTrigger>
+              <TabsTrigger value="ref"><MapPin className="w-4 h-4 mr-1.5" />Ponto ref.</TabsTrigger>
+            </TabsList>
+            <TabsContent value="kml" className="space-y-2">
+              <Label>Importar polígono (.kml, .geojson)</Label>
+              <Input type="file" accept=".kml,.geojson,.json" onChange={handleKmlUpload} />
+            </TabsContent>
+            <TabsContent value="coords" className="space-y-2">
+              <Label>Coordenadas WGS84 (uma por linha: latitude, longitude)</Label>
+              <Textarea
+                rows={6}
+                placeholder="-15.78, -47.93&#10;-15.79, -47.92&#10;-15.80, -47.94"
+                value={coords}
+                onChange={e => setCoords(e.target.value)}
+              />
+              <Button type="button" size="sm" onClick={handleApplyCoordinates}>Criar polígono</Button>
+            </TabsContent>
+            <TabsContent value="ref" className="space-y-2">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label>Latitude (WGS84)</Label>
+                  <Input value={refLat} onChange={e => setRefLat(e.target.value)} placeholder="-15.78" />
+                </div>
+                <div>
+                  <Label>Longitude (WGS84)</Label>
+                  <Input value={refLng} onChange={e => setRefLng(e.target.value)} placeholder="-47.93" />
+                </div>
               </div>
-              <div>
-                <Label>Longitude</Label>
-                <Input value={refLng} onChange={e => setRefLng(e.target.value)} placeholder="-47.93" />
-              </div>
-            </div>
-            <Button type="button" size="sm" onClick={handleApplyReference}>Marcar ponto</Button>
-          </TabsContent>
-        </Tabs>
+              <Button type="button" size="sm" onClick={handleApplyReference}>Marcar ponto</Button>
+            </TabsContent>
+          </Tabs>
+        </>
       )}
     </div>
   );
-}
+});
+
+export default PropertyMap;
