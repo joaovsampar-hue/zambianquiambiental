@@ -17,13 +17,34 @@ interface NeighborPdf {
   error_message?: string;
 }
 
+interface NeighborOwner {
+  name: string;
+  cpf_cnpj: string;
+  rg?: string;
+  marital_status?: string;
+  marriage_regime?: string;
+  spouse?: { name?: string; cpf?: string; rg?: string };
+  fonte_dados_documentais?: string;
+  verificar_titularidade?: boolean;
+}
+
+interface NeighborMortgage {
+  descricao?: string;
+  ato_origem?: string | null;
+  status_hipoteca?: 'ativa' | 'cancelada' | 'indefinida';
+  ato_cancelamento?: string | null;
+}
+
 interface NeighborProperty {
   registration_number: string;
   denomination: string;
   municipality: string;
   state: string;
   total_area: string;
-  owners: { name: string; cpf_cnpj: string }[];
+  ccir?: string;
+  registry_office?: string;
+  owners: NeighborOwner[];
+  mortgages?: NeighborMortgage[];
   pdfs: NeighborPdf[];
   status: 'pending' | 'processing' | 'completed' | 'error';
   error_message?: string;
@@ -122,10 +143,20 @@ export default function BoundariesTab({ formData, updateField, getField }: Bound
 
       const extracted = funcData.extracted_data;
       const ident = extracted?.identification ?? {};
-      const owners = (extracted?.owners ?? []).map((o: any) => ({
+      const owners: NeighborOwner[] = (extracted?.owners ?? []).map((o: any) => ({
         name: o.name || '',
         cpf_cnpj: o.cpf_cnpj || '',
+        rg: o.rg || '',
+        marital_status: o.marital_status || '',
+        marriage_regime: o.marriage_regime || '',
+        spouse: o.spouse || undefined,
+        fonte_dados_documentais: o.fonte_dados_documentais,
+        verificar_titularidade: o.verificar_titularidade,
       }));
+      // Hipotecas M5/R8 podem vir como array de objetos
+      const mortgages: NeighborMortgage[] = Array.isArray(extracted?.encumbrances?.mortgage)
+        ? extracted.encumbrances.mortgage
+        : [];
 
       // Re-read neighbors to avoid stale state
       const freshNeighbors = [...neighbors];
@@ -140,13 +171,18 @@ export default function BoundariesTab({ formData, updateField, getField }: Bound
       n.state = ident.state || n.state;
       n.total_area = ident.total_area || n.total_area;
       n.registration_number = ident.registration_number || n.registration_number;
-      // Merge owners - add new ones
-      const existingCpfs = new Set(n.owners.map(o => o.cpf_cnpj));
+      n.ccir = ident.ccir || n.ccir;
+      n.registry_office = ident.registry_office || n.registry_office;
+      // Merge owners — chave por CPF, fallback nome
+      const existingKeys = new Set(n.owners.map(o => o.cpf_cnpj || o.name));
       for (const owner of owners) {
-        if (!existingCpfs.has(owner.cpf_cnpj)) {
+        const key = owner.cpf_cnpj || owner.name;
+        if (!existingKeys.has(key)) {
           n.owners.push(owner);
         }
       }
+      // Merge hipotecas — substitui (matrícula mais recente é fonte da verdade)
+      if (mortgages.length > 0) n.mortgages = mortgages;
       n.status = 'completed';
       freshNeighbors[index] = n;
       updateNeighbors(freshNeighbors);
@@ -364,42 +400,142 @@ export default function BoundariesTab({ formData, updateField, getField }: Bound
                           className="text-sm h-9"
                         />
                       </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">CCIR</Label>
+                        <Input
+                          value={neighbor.ccir ?? ''}
+                          onChange={e => updateNeighborField(i, 'ccir', e.target.value)}
+                          className="text-sm h-9"
+                          placeholder="Número do CCIR"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Cartório de registro</Label>
+                        <Input
+                          value={neighbor.registry_office ?? ''}
+                          onChange={e => updateNeighborField(i, 'registry_office', e.target.value)}
+                          className="text-sm h-9"
+                        />
+                      </div>
                     </div>
 
-                    {/* Owners */}
+                    {/* Owners — agora com regime, cônjuge e badges M5/R8 */}
                     {neighbor.owners.length > 0 && (
                       <div className="space-y-2">
                         <Label className="text-xs font-semibold flex items-center gap-1.5">
                           <User className="w-3 h-3" /> Proprietários Atuais
                         </Label>
-                        {neighbor.owners.map((owner, oi) => (
-                          <div key={oi} className="grid grid-cols-2 gap-3 pl-3 border-l-2 border-primary/20">
-                            <div className="space-y-1">
-                              <Label className="text-xs text-muted-foreground">Nome</Label>
-                              <Input
-                                value={owner.name}
-                                onChange={e => {
-                                  const updatedOwners = [...neighbor.owners];
-                                  updatedOwners[oi] = { ...updatedOwners[oi], name: e.target.value };
-                                  updateNeighborField(i, 'owners', updatedOwners);
-                                }}
-                                className="text-sm h-8"
-                              />
+                        {neighbor.owners.map((owner, oi) => {
+                          const updateOwnerPatch = (patch: Partial<NeighborOwner>) => {
+                            const updatedOwners = [...neighbor.owners];
+                            updatedOwners[oi] = { ...updatedOwners[oi], ...patch };
+                            updateNeighborField(i, 'owners', updatedOwners);
+                          };
+                          const updateSpousePatch = (patch: any) => {
+                            const updatedOwners = [...neighbor.owners];
+                            updatedOwners[oi] = {
+                              ...updatedOwners[oi],
+                              spouse: { ...(updatedOwners[oi].spouse ?? {}), ...patch },
+                            };
+                            updateNeighborField(i, 'owners', updatedOwners);
+                          };
+                          const isMarried = (owner.marital_status ?? '').toLowerCase().startsWith('cas');
+                          return (
+                            <div key={oi} className="space-y-2 pl-3 border-l-2 border-primary/20">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-xs font-semibold text-primary">Proprietário {oi + 1}</span>
+                                {owner.fonte_dados_documentais === 'averbacao_anterior' && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-info/10 text-info border border-info/30">
+                                    dados de averbação anterior
+                                  </span>
+                                )}
+                                {owner.fonte_dados_documentais === 'nao_encontrado' && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-warning/10 text-warning border border-warning/30">
+                                    CPF/RG não encontrado
+                                  </span>
+                                )}
+                                {owner.verificar_titularidade && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-warning/10 text-warning border border-warning/30">
+                                    ⚠ verificar titularidade
+                                  </span>
+                                )}
+                              </div>
+                              <div className="grid grid-cols-2 gap-3">
+                                <div className="space-y-1">
+                                  <Label className="text-xs text-muted-foreground">Nome</Label>
+                                  <Input value={owner.name} onChange={e => updateOwnerPatch({ name: e.target.value })} className="text-sm h-8" />
+                                </div>
+                                <div className="space-y-1">
+                                  <Label className="text-xs text-muted-foreground">CPF/CNPJ</Label>
+                                  <Input value={owner.cpf_cnpj} onChange={e => updateOwnerPatch({ cpf_cnpj: e.target.value })} className="text-sm h-8" />
+                                </div>
+                                <div className="space-y-1">
+                                  <Label className="text-xs text-muted-foreground">RG</Label>
+                                  <Input value={owner.rg ?? ''} onChange={e => updateOwnerPatch({ rg: e.target.value })} className="text-sm h-8" />
+                                </div>
+                                <div className="space-y-1">
+                                  <Label className="text-xs text-muted-foreground">Estado civil</Label>
+                                  <Input value={owner.marital_status ?? ''} onChange={e => updateOwnerPatch({ marital_status: e.target.value })} className="text-sm h-8" />
+                                </div>
+                                <div className="col-span-2 space-y-1">
+                                  <Label className="text-xs text-muted-foreground">Regime de casamento</Label>
+                                  <Input value={owner.marriage_regime ?? ''} onChange={e => updateOwnerPatch({ marriage_regime: e.target.value })} className="text-sm h-8" />
+                                </div>
+                              </div>
+                              {isMarried && (
+                                <div className="grid grid-cols-3 gap-2 pl-3 border-l border-border">
+                                  <div className="space-y-1">
+                                    <Label className="text-[10px] text-muted-foreground">Cônjuge</Label>
+                                    <Input value={owner.spouse?.name ?? ''} onChange={e => updateSpousePatch({ name: e.target.value })} className="text-sm h-7" />
+                                  </div>
+                                  <div className="space-y-1">
+                                    <Label className="text-[10px] text-muted-foreground">CPF cônjuge</Label>
+                                    <Input value={owner.spouse?.cpf ?? ''} onChange={e => updateSpousePatch({ cpf: e.target.value })} className="text-sm h-7" />
+                                  </div>
+                                  <div className="space-y-1">
+                                    <Label className="text-[10px] text-muted-foreground">RG cônjuge</Label>
+                                    <Input value={owner.spouse?.rg ?? ''} onChange={e => updateSpousePatch({ rg: e.target.value })} className="text-sm h-7" />
+                                  </div>
+                                </div>
+                              )}
                             </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs text-muted-foreground">CPF/CNPJ</Label>
-                              <Input
-                                value={owner.cpf_cnpj}
-                                onChange={e => {
-                                  const updatedOwners = [...neighbor.owners];
-                                  updatedOwners[oi] = { ...updatedOwners[oi], cpf_cnpj: e.target.value };
-                                  updateNeighborField(i, 'owners', updatedOwners);
-                                }}
-                                className="text-sm h-8"
-                              />
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Hipotecas M5/R8 */}
+                    {neighbor.mortgages && neighbor.mortgages.length > 0 && (
+                      <div className="space-y-2">
+                        <Label className="text-xs font-semibold">Hipotecas ({neighbor.mortgages.length})</Label>
+                        <div className="border border-border rounded-md overflow-hidden">
+                          <table className="w-full text-xs">
+                            <thead className="bg-muted/50">
+                              <tr>
+                                <th className="text-left p-2 font-medium">Ato origem</th>
+                                <th className="text-left p-2 font-medium">Status</th>
+                                <th className="text-left p-2 font-medium">Cancelamento</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {neighbor.mortgages.map((m, mi) => (
+                                <tr key={mi} className="border-t border-border">
+                                  <td className="p-2 font-mono">{m.ato_origem ?? '—'}</td>
+                                  <td className="p-2">
+                                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                      m.status_hipoteca === 'ativa' ? 'bg-destructive/10 text-destructive border border-destructive/30' :
+                                      m.status_hipoteca === 'cancelada' ? 'bg-success/10 text-success border border-success/30' :
+                                      'bg-warning/10 text-warning border border-warning/30'
+                                    }`}>
+                                      {m.status_hipoteca ?? 'indefinida'}
+                                    </span>
+                                  </td>
+                                  <td className="p-2 font-mono text-muted-foreground">{m.ato_cancelamento ?? '—'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
                     )}
                   </div>
