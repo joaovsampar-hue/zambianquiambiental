@@ -22,7 +22,8 @@ export default function NewProcessPage() {
   const mapHandleRef = useRef<PropertyMapHandle>(null);
 
   const [step, setStep] = useState(1);
-  const [carNumberRaw, setCarNumberRaw] = useState(''); // como digitado (com pontos OK)
+  // CAR é capturado quando o usuário busca o polígono pela aba CAR do mapa.
+  const [carClean, setCarClean] = useState('');
   const [clientId, setClientId] = useState('');
   const [propertyId, setPropertyId] = useState('');
   const [serviceType, setServiceType] = useState('georreferenciamento');
@@ -35,10 +36,6 @@ export default function NewProcessPage() {
   // Cadastro inline de cliente novo
   const [showNewClient, setShowNewClient] = useState(false);
   const [newClient, setNewClient] = useState({ name: '', cpf_cnpj: '', phone: '', email: '' });
-
-  // CAR sanitizado (sem pontos) — usado para validação e persistência
-  const carClean = sanitizeCAR(carNumberRaw);
-  const carOk = !carClean || isValidCAR(carClean);
 
   const { data: clients } = useQuery({
     queryKey: ['clients-list'],
