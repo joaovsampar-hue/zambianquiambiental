@@ -17,7 +17,8 @@ import {
   sicarLayerForUF,
   parseCarUF,
   fetchCarPolygon,
-  fetchNeighborsInBbox,
+  fetchTouchingNeighbors,
+  fetchFeatureAtPoint,
   type SicarUF,
 } from '@/lib/sicar';
 
@@ -69,11 +70,10 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
   const layerGroup = useRef<L.LayerGroup | null>(null);
   const neighborsLayer = useRef<L.LayerGroup | null>(null);
   const [coords, setCoords] = useState(initialData?.coordinates_text ?? '');
-  const [refLat, setRefLat] = useState(initialData?.reference_lat?.toString() ?? '');
-  const [refLng, setRefLng] = useState(initialData?.reference_lng?.toString() ?? '');
   const [carInput, setCarInput] = useState(carNumber ?? '');
   const [loadingCar, setLoadingCar] = useState(false);
   const [clickedCoord, setClickedCoord] = useState<{ lat: number; lng: number } | null>(null);
+  const [identifying, setIdentifying] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const dataRef = useRef<MapData>({
     geojson: initialData?.geojson ?? null,
@@ -85,6 +85,9 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
   });
   const [source, setSource] = useState<GeometrySource>(dataRef.current.source);
   const { toast } = useToast();
+  // Refs para handlers chamados de dentro de listeners do Leaflet (registrados 1x).
+  const identifyRef = useRef<(lat: number, lng: number) => Promise<void>>(async () => {});
+  const loadedCarsRef = useRef<Set<string>>(new Set());
 
   useImperativeHandle(ref, () => ({
     flyToUF: (uf: string) => {
@@ -181,8 +184,9 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     layerGroup.current = L.layerGroup().addTo(map);
     neighborsLayer.current = L.layerGroup().addTo(map);
 
-    map.on('click', (e: L.LeafletMouseEvent) => {
+    map.on('click', async (e: L.LeafletMouseEvent) => {
       setClickedCoord({ lat: e.latlng.lat, lng: e.latlng.lng });
+      await identifyRef.current(e.latlng.lat, e.latlng.lng);
     });
 
     renderGeometry(dataRef.current);
@@ -307,20 +311,11 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
       renderGeometry(dataRef.current);
       onCarLoaded?.(result.feature.cod_imovel);
 
-      // Buscar vizinhos (não-bloqueante, ignora erro)
+      // Buscar confrontantes diretos (que tocam a fronteira do imóvel) — não usa raio.
       try {
-        const layer = L.geoJSON(result.feature.geometry as any);
-        const b = layer.getBounds();
-        const margin = 0.02; // ~2km
-        const bbox: [number, number, number, number] = [
-          b.getWest() - margin,
-          b.getSouth() - margin,
-          b.getEast() + margin,
-          b.getNorth() + margin,
-        ];
-        const neighbors = await fetchNeighborsInBbox(
+        const neighbors = await fetchTouchingNeighbors(
           result.feature.uf as SicarUF,
-          bbox,
+          result.feature.geometry,
           result.feature.cod_imovel,
         );
         if (neighbors) renderNeighbors(neighbors, result.feature.cod_imovel);
@@ -362,16 +357,85 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     }
   };
 
-  const handleApplyReference = () => {
-    const lat = parseFloat(refLat);
-    const lng = parseFloat(refLng);
-    if (isNaN(lat) || isNaN(lng)) {
-      toast({ title: 'Coordenadas inválidas', variant: 'destructive' });
+  /**
+   * Identifica o imóvel SICAR sob o ponto clicado (se a UF puder ser inferida do
+   * polígono atual ou do CAR vinculado). Mostra popup com CAR + área e oferece ação.
+   */
+  const identifyAtPoint = async (lat: number, lng: number) => {
+    const map = mapInstance.current;
+    if (!map) return;
+
+    // Inferir UF: prioriza UF do polígono já carregado; fallback no CAR do processo.
+    let uf: SicarUF | null = null;
+    const currentCar = (dataRef.current.geojson as any)?.properties?.cod_imovel as string | undefined;
+    if (currentCar) uf = parseCarUF(currentCar);
+    if (!uf && carNumber) uf = parseCarUF(carNumber);
+    if (!uf && carInput) uf = parseCarUF(carInput);
+    if (!uf) {
+      // Sem UF não dá pra consultar o WFS por ponto — popup informativo.
+      L.popup({ closeButton: true, autoClose: true })
+        .setLatLng([lat, lng])
+        .setContent(
+          '<div class="text-xs">Selecione uma UF (busque por CAR primeiro) para identificar imóveis no clique.</div>',
+        )
+        .openOn(map);
       return;
     }
-    update({ reference_lat: lat, reference_lng: lng, source: dataRef.current.geojson ? dataRef.current.source : 'reference_only' });
-    renderGeometry(dataRef.current);
+
+    setIdentifying(true);
+    const loadingPopup = L.popup({ closeButton: false, autoClose: false })
+      .setLatLng([lat, lng])
+      .setContent('<div class="text-xs">Consultando SICAR…</div>')
+      .openOn(map);
+
+    try {
+      const feat = await fetchFeatureAtPoint(uf, lat, lng);
+      if (!feat) {
+        loadingPopup.setContent(
+          '<div class="text-xs">Nenhum imóvel SICAR neste ponto.</div>',
+        );
+        return;
+      }
+      const html = `
+        <div class="text-xs space-y-1">
+          <div class="font-semibold">${feat.tipo_imovel || 'Imóvel SICAR'}</div>
+          <div><span class="text-muted-foreground">CAR:</span> <span class="font-mono break-all">${feat.cod_imovel}</span></div>
+          <div><span class="text-muted-foreground">Área total:</span> ${feat.area.toFixed(2)} ha</div>
+          <div><span class="text-muted-foreground">Município:</span> ${feat.municipio}/${feat.uf}</div>
+          <button id="sicar-load-${feat.cod_imovel}" class="mt-1 px-2 py-1 rounded bg-primary text-primary-foreground text-xs">Carregar este imóvel</button>
+        </div>`;
+      loadingPopup.setContent(html);
+      // Liga o botão depois que o popup é renderizado.
+      setTimeout(() => {
+        const btn = document.getElementById(`sicar-load-${feat.cod_imovel}`);
+        btn?.addEventListener('click', () => {
+          loadingPopup.close();
+          setCarInput(feat.cod_imovel);
+          loadCar(feat.cod_imovel);
+        });
+      }, 0);
+    } finally {
+      setIdentifying(false);
+    }
   };
+
+  // Mantém o ref de identifyAtPoint atualizado para o listener de click
+  // (registrado uma vez no init do mapa).
+  useEffect(() => {
+    identifyRef.current = identifyAtPoint;
+  });
+
+  // Auto-carregar o polígono SICAR quando o processo já tem CAR vinculado
+  // e o mapa ainda não exibe geometria. Evita re-busca em re-renders.
+  useEffect(() => {
+    if (!carNumber) return;
+    if (dataRef.current.geojson) return;
+    if (loadedCarsRef.current.has(carNumber)) return;
+    loadedCarsRef.current.add(carNumber);
+    setCarInput(carNumber);
+    loadCar(carNumber);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [carNumber]);
 
   const handleApplyCoordinates = () => {
     try {
@@ -402,8 +466,6 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
   const handleClear = () => {
     update({ geojson: null, kml_raw: null, coordinates_text: null, reference_lat: null, reference_lng: null, source: null });
     setCoords('');
-    setRefLat('');
-    setRefLng('');
     neighborsLayer.current?.clearLayers();
     renderGeometry(dataRef.current);
     if (mapInstance.current) mapInstance.current.setView([-15.78, -47.93], 4);
@@ -472,11 +534,10 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
           </div>
 
           <Tabs defaultValue="car" className="w-full">
-            <TabsList className="grid grid-cols-4 w-full">
+            <TabsList className="grid grid-cols-3 w-full">
               <TabsTrigger value="car"><Search className="w-4 h-4 mr-1.5" />CAR</TabsTrigger>
               <TabsTrigger value="kml"><Upload className="w-4 h-4 mr-1.5" />KML</TabsTrigger>
               <TabsTrigger value="coords">Coords</TabsTrigger>
-              <TabsTrigger value="ref"><MapPin className="w-4 h-4 mr-1.5" />Ponto</TabsTrigger>
             </TabsList>
 
             <TabsContent value="car" className="space-y-2">
@@ -512,20 +573,6 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
                 onChange={e => setCoords(e.target.value)}
               />
               <Button type="button" size="sm" onClick={handleApplyCoordinates}>Criar polígono</Button>
-            </TabsContent>
-
-            <TabsContent value="ref" className="space-y-2">
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <Label>Latitude (WGS84)</Label>
-                  <Input value={refLat} onChange={e => setRefLat(e.target.value)} placeholder="-15.78" />
-                </div>
-                <div>
-                  <Label>Longitude (WGS84)</Label>
-                  <Input value={refLng} onChange={e => setRefLng(e.target.value)} placeholder="-47.93" />
-                </div>
-              </div>
-              <Button type="button" size="sm" onClick={handleApplyReference}>Marcar ponto</Button>
             </TabsContent>
           </Tabs>
         </>
