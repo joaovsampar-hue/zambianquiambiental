@@ -226,43 +226,66 @@ export default function AnalysisPage() {
               <Card>
                 <CardHeader><CardTitle className="text-base">Proprietários</CardTitle></CardHeader>
                 <CardContent className="space-y-6">
-                  {(formData?.owners ?? [{}]).map((_: any, i: number) => (
-                    <div key={i} className="p-4 border border-border rounded-lg space-y-3">
-                      <p className="text-sm font-semibold text-primary">Proprietário {i + 1}</p>
-                      <div className="grid grid-cols-2 gap-3">
-                        <FieldWithAiIndicator label="Nome completo" value={getField(`owners.${i}.name`)} onChange={v => {
-                          const owners = [...(formData?.owners ?? [{}])];
-                          owners[i] = { ...owners[i], name: v };
-                          updateField('owners', owners);
-                        }} required />
-                        <FieldWithAiIndicator label="CPF/CNPJ" value={getField(`owners.${i}.cpf_cnpj`)} onChange={v => {
-                          const owners = [...(formData?.owners ?? [{}])];
-                          owners[i] = { ...owners[i], cpf_cnpj: v };
-                          updateField('owners', owners);
-                        }} required />
-                        <FieldWithAiIndicator label="RG" value={getField(`owners.${i}.rg`)} onChange={v => {
-                          const owners = [...(formData?.owners ?? [{}])];
-                          owners[i] = { ...owners[i], rg: v };
-                          updateField('owners', owners);
-                        }} />
-                        <FieldWithAiIndicator label="Estado civil" value={getField(`owners.${i}.marital_status`)} onChange={v => {
-                          const owners = [...(formData?.owners ?? [{}])];
-                          owners[i] = { ...owners[i], marital_status: v };
-                          updateField('owners', owners);
-                        }} />
-                        <FieldWithAiIndicator label="Participação (%)" value={getField(`owners.${i}.share_percentage`)} onChange={v => {
-                          const owners = [...(formData?.owners ?? [{}])];
-                          owners[i] = { ...owners[i], share_percentage: v };
-                          updateField('owners', owners);
-                        }} />
-                        <FieldWithAiIndicator label="Nacionalidade" value={getField(`owners.${i}.nationality`)} onChange={v => {
-                          const owners = [...(formData?.owners ?? [{}])];
-                          owners[i] = { ...owners[i], nationality: v };
-                          updateField('owners', owners);
-                        }} />
+                  {(formData?.owners ?? [{}]).map((owner: any, i: number) => {
+                    const updateOwner = (patch: any) => {
+                      const owners = [...(formData?.owners ?? [{}])];
+                      owners[i] = { ...owners[i], ...patch };
+                      updateField('owners', owners);
+                    };
+                    const updateSpouse = (patch: any) => {
+                      const owners = [...(formData?.owners ?? [{}])];
+                      owners[i] = { ...owners[i], spouse: { ...(owners[i]?.spouse ?? {}), ...patch } };
+                      updateField('owners', owners);
+                    };
+                    const isMarried = (owner?.marital_status ?? '').toString().toLowerCase().startsWith('cas');
+                    const fonte = owner?.fonte_dados_documentais;
+                    const verifTit = owner?.verificar_titularidade;
+                    return (
+                      <div key={i} className="p-4 border border-border rounded-lg space-y-3">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-semibold text-primary">Proprietário {i + 1}</p>
+                          {fonte === 'averbacao_anterior' && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-info/10 text-info border border-info/30">
+                              dados de averbação anterior
+                            </span>
+                          )}
+                          {fonte === 'nao_encontrado' && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-warning/10 text-warning border border-warning/30">
+                              CPF/RG não encontrado
+                            </span>
+                          )}
+                          {verifTit && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-warning/10 text-warning border border-warning/30">
+                              ⚠ verificar titularidade
+                            </span>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <FieldWithAiIndicator label="Nome completo" value={owner?.name} onChange={v => updateOwner({ name: v })} required />
+                          <FieldWithAiIndicator label="CPF/CNPJ" value={owner?.cpf_cnpj} onChange={v => updateOwner({ cpf_cnpj: v })} required />
+                          <FieldWithAiIndicator label="RG" value={owner?.rg} onChange={v => updateOwner({ rg: v })} />
+                          <FieldWithAiIndicator label="Data de nascimento" value={owner?.birth_date} onChange={v => updateOwner({ birth_date: v })} />
+                          <FieldWithAiIndicator label="Nacionalidade" value={owner?.nationality} onChange={v => updateOwner({ nationality: v })} />
+                          <FieldWithAiIndicator label="Estado civil" value={owner?.marital_status} onChange={v => updateOwner({ marital_status: v })} />
+                          <FieldWithAiIndicator label="Regime de casamento" value={owner?.marriage_regime} onChange={v => updateOwner({ marriage_regime: v })} />
+                          <FieldWithAiIndicator label="Participação (%)" value={owner?.share_percentage} onChange={v => updateOwner({ share_percentage: v })} />
+                          <div className="col-span-2">
+                            <FieldWithAiIndicator label="Endereço" value={owner?.address} onChange={v => updateOwner({ address: v })} multiline />
+                          </div>
+                        </div>
+                        {isMarried && (
+                          <div className="pl-3 border-l-2 border-primary/20 space-y-3">
+                            <p className="text-xs font-semibold text-muted-foreground">Cônjuge</p>
+                            <div className="grid grid-cols-2 gap-3">
+                              <FieldWithAiIndicator label="Nome do cônjuge" value={owner?.spouse?.name} onChange={v => updateSpouse({ name: v })} />
+                              <FieldWithAiIndicator label="CPF do cônjuge" value={owner?.spouse?.cpf} onChange={v => updateSpouse({ cpf: v })} />
+                              <FieldWithAiIndicator label="RG do cônjuge" value={owner?.spouse?.rg} onChange={v => updateSpouse({ rg: v })} />
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                   <Button variant="outline" size="sm" onClick={() => {
                     const owners = [...(formData?.owners ?? [])];
                     owners.push({});
