@@ -217,6 +217,14 @@ export default function ProcessDetailPage() {
               {STAGES.map(s => <SelectItem key={s.key} value={s.key}>{s.label}</SelectItem>)}
             </SelectContent>
           </Select>
+          <DeleteButton
+            variant="outline"
+            label="Excluir processo"
+            title="Excluir processo?"
+            description={`O processo ${process.process_number} e todos os confrontantes, análises e geometria serão removidos.`}
+            onConfirm={async () => { await deleteProcess.mutateAsync(); }}
+            stopPropagation={false}
+          />
         </div>
       </div>
 
