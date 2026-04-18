@@ -17,13 +17,34 @@ interface NeighborPdf {
   error_message?: string;
 }
 
+interface NeighborOwner {
+  name: string;
+  cpf_cnpj: string;
+  rg?: string;
+  marital_status?: string;
+  marriage_regime?: string;
+  spouse?: { name?: string; cpf?: string; rg?: string };
+  fonte_dados_documentais?: string;
+  verificar_titularidade?: boolean;
+}
+
+interface NeighborMortgage {
+  descricao?: string;
+  ato_origem?: string | null;
+  status_hipoteca?: 'ativa' | 'cancelada' | 'indefinida';
+  ato_cancelamento?: string | null;
+}
+
 interface NeighborProperty {
   registration_number: string;
   denomination: string;
   municipality: string;
   state: string;
   total_area: string;
-  owners: { name: string; cpf_cnpj: string }[];
+  ccir?: string;
+  registry_office?: string;
+  owners: NeighborOwner[];
+  mortgages?: NeighborMortgage[];
   pdfs: NeighborPdf[];
   status: 'pending' | 'processing' | 'completed' | 'error';
   error_message?: string;
