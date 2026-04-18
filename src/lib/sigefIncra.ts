@@ -22,6 +22,13 @@ export const SIGEF_UFS = [
 export type SigefUF = typeof SIGEF_UFS[number];
 
 /**
+ * INFO_FORMAT que o MapServer i3Geo do INCRA aceita.
+ * `text/html` NÃO é suportado ("Unsupported INFO_FORMAT value (text/html)").
+ * `application/vnd.ogc.gml` é o formato nativo (GML 2.x).
+ */
+export const SIGEF_INFO_FORMAT = 'application/vnd.ogc.gml';
+
+/**
  * O cliente envia um alias amigável (`sigef_particular_sp`) que o proxy converte
  * para o tema real `certificada_sigef_particular_sp` do MapServer do INCRA.
  */
@@ -41,29 +48,34 @@ export interface SigefInfo {
 }
 
 /**
- * O i3Geo do INCRA devolve GetFeatureInfo no formato `text/html` (uma tabela).
- * Extraímos os campos por regex — o MapServer usa um template fixo, então o
- * HTML é estável (linhas `<tr><th>campo</th><td>valor</td></tr>`).
- *
- * Quando não há feature no ponto, o HTML vem vazio ou só com cabeçalhos.
+ * Parse da resposta GetFeatureInfo do MapServer i3Geo do INCRA.
+ * Aceita GML (formato nativo), HTML (legado) e texto plano. O parser usa regex
+ * tolerante a namespace (ms:, sigef:, gml:, etc.) porque o prefixo varia.
  */
-export function parseSigefInfoHtml(html: string): SigefInfo | null {
-  if (!html || !html.trim()) return null;
+export function parseSigefInfoHtml(payload: string): SigefInfo | null {
+  if (!payload || !payload.trim()) return null;
 
-  // O MapServer pode devolver várias estruturas — tentamos algumas:
-  // 1. <tr><th>campo</th><td>valor</td></tr>
-  // 2. campo = valor (texto plano)
+  // Resposta de erro do servidor — nunca é uma feature válida.
+  if (/ServiceException/i.test(payload)) return null;
+
   const get = (field: string): string | null => {
-    // formato html
+    // GML/XML: <ns:field>valor</ns:field> ou <field>valor</field>
+    const reXml = new RegExp(
+      `<(?:[a-z0-9_]+:)?${field}\\b[^>]*>\\s*([^<]+?)\\s*</(?:[a-z0-9_]+:)?${field}>`,
+      'i',
+    );
+    const mx = payload.match(reXml);
+    if (mx) return mx[1].trim() || null;
+    // HTML legado: <th>field</th><td>valor</td>
     const reHtml = new RegExp(
       `<th[^>]*>\\s*${field}\\s*</th>\\s*<td[^>]*>\\s*([^<]+?)\\s*</td>`,
       'i',
     );
-    const mh = html.match(reHtml);
+    const mh = payload.match(reHtml);
     if (mh) return mh[1].trim() || null;
-    // formato campo: valor (label)
-    const reTxt = new RegExp(`${field}\\s*[:=]\\s*([^\\n<]+)`, 'i');
-    const mt = html.match(reTxt);
+    // Texto plano: campo: valor
+    const reTxt = new RegExp(`\\b${field}\\s*[:=]\\s*([^\\n<]+)`, 'i');
+    const mt = payload.match(reTxt);
     return mt ? mt[1].trim() || null : null;
   };
 
@@ -80,7 +92,10 @@ export function parseSigefInfoHtml(html: string): SigefInfo | null {
     data_registro: get('registro_data') ?? get('data_registro'),
   };
 
-  // Considera "achou" se ao menos um identificador veio.
   const found = info.parcela_codigo || info.matricula || info.codigo_imovel || info.nome_area;
-  return found ? info : null;
+  if (found) return info;
+
+  // Fallback: featureMember não-vazio (há parcela mas campos com nomes diferentes).
+  if (/<(?:gml:)?featureMember[^>]*>\s*<[^>/]+>/i.test(payload)) return info;
+  return null;
 }
