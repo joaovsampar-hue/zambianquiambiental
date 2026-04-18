@@ -19,6 +19,7 @@ import {
   fetchCarPolygon,
   fetchTouchingNeighbors,
   fetchFeatureAtPoint,
+  sanitizeCar,
   type SicarUF,
 } from '@/lib/sicar';
 
