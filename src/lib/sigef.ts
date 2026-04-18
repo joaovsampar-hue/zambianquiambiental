@@ -7,6 +7,20 @@
 //   - SIGEF: parcelas com georreferenciamento CERTIFICADO pelo INCRA (matrícula registrada)
 // Os dois cadastros são complementares. Um confrontante pode estar nos dois, em apenas
 // um, ou em nenhum.
+//
+// ⚠️ COBERTURA LIMITADA: o serviço público "INCRA_SIGEF_Imoveis_Certificados" hospedado
+// no ArcGIS Online (services7.arcgis.com/QJXMUxZGStbh5qh9) é a camada
+// **"Imóveis Certificados — Buffer 5 Km"**, que só inclui parcelas dentro de um
+// buffer de 5km ao redor de áreas indígenas, quilombolas e assentamentos.
+// Validado empiricamente: `where=UF='SP'` → count: 0. Mariápolis (SP) e regiões
+// agrícolas comuns retornam vazio.
+//
+// O dataset SIGEF nacional completo só é disponibilizado pelo INCRA via download
+// autenticado (gov.br) em https://certificacao.incra.gov.br — NÃO há serviço WFS/REST
+// público com cobertura nacional. As alternativas seriam:
+//   1. Importar os shapefiles SIGEF (mensal) para um GeoServer próprio.
+//   2. Usar o endpoint privado autenticado (não automatizável sem credencial gov.br).
+// Por ora mantemos o overlay com aviso explícito ao usuário sobre a limitação.
 
 export const SIGEF_ENDPOINT =
   'https://services7.arcgis.com/QJXMUxZGStbh5qh9/ArcGIS/rest/services/INCRA_SIGEF_Imoveis_Certificados/FeatureServer/0';
