@@ -521,26 +521,45 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
             </div>`;
         };
 
+        const wireButtons = () => {
+          if (showToggleBtn) {
+            document.getElementById(toggleBtnId)?.addEventListener('click', () => {
+              onNeighborToggleRef.current?.(sanitized);
+              (layer as any).closePopup?.();
+            });
+          }
+          if (showAddBtn) {
+            document.getElementById(addBtnId)?.addEventListener('click', () => {
+              (layer as any).closePopup?.();
+              onNeighborPick?.({ car, area, municipio, uf });
+            });
+          }
+        };
+
         layer.bindPopup(buildHtml);
-        layer.on('popupopen', () => {
-          // Reescreve o HTML pra refletir o estado atual de seleção (Leaflet
-          // só chama o builder uma vez quando bindPopup recebe função, mas
-          // aqui forçamos atualização imediata).
-          (layer as any).getPopup?.()?.setContent(buildHtml());
-          setTimeout(() => {
-            if (showToggleBtn) {
-              document.getElementById(toggleBtnId)?.addEventListener('click', () => {
-                onNeighborToggleRef.current?.(sanitized);
-                (layer as any).closePopup?.();
-              });
-            }
-            if (showAddBtn) {
-              document.getElementById(addBtnId)?.addEventListener('click', () => {
-                (layer as any).closePopup?.();
-                onNeighborPick?.({ car, area, municipio, uf });
-              });
-            }
-          }, 0);
+        layer.on('popupopen', (e: any) => {
+          const popup = (layer as any).getPopup?.();
+          const baseHtml = buildHtml();
+          // Placeholder enquanto consulta SIGEF (se houver UF ativa).
+          const sigefPending = sigefActiveUFs.current.size > 0;
+          const pendingHtml = sigefPending
+            ? `<div class="pt-2 mt-2 border-t border-border text-[11px] text-muted-foreground italic">Consultando SIGEF/INCRA…</div>`
+            : '';
+          popup?.setContent(baseHtml + pendingHtml);
+          setTimeout(wireButtons, 0);
+
+          if (!sigefPending) return;
+          // Usa o latlng do clique (popup._latlng) para consultar GetFeatureInfo
+          // exatamente sobre a parcela vizinha clicada.
+          const latlng = e?.popup?._latlng ?? popup?._latlng;
+          if (!latlng) return;
+          identifySigefAtPoint(latlng.lat, latlng.lng).then((sigefHtml) => {
+            // Garante que o popup ainda está aberto e é o mesmo (não houve outro clique).
+            if (!(layer as any).isPopupOpen?.()) return;
+            const finalHtml = baseHtml + (sigefHtml ?? `<div class="pt-2 mt-2 border-t border-border text-[11px] text-muted-foreground italic">Sem certificação SIGEF nesta parcela.</div>`);
+            popup?.setContent(finalHtml);
+            setTimeout(wireButtons, 0);
+          });
         });
       },
     }).addTo(lg);
