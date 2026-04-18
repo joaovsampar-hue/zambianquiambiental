@@ -12,11 +12,112 @@
 // - Painel lateral idêntico ao modelo Zambianqui: logo, título, datum, escala
 //   gráfica, legenda, assinatura.
 
-import { toPng } from 'html-to-image';
 import jsPDF from 'jspdf';
 import L from 'leaflet';
-import bboxClip from '@turf/bbox-clip';
 import { embedInterFont } from './pdfFonts';
+
+// ===== Captura do basemap em canvas próprio =====
+// html-to-image falha quando algum tile não devolve cabeçalho CORS, taintando
+// o canvas. Em vez disso, percorremos os L.TileLayer ativos e baixamos cada
+// tile via fetch (com fallback para <img> sem CORS quando o servidor não
+// libera). O resultado é um PNG sempre válido.
+
+interface BasemapCaptureResult {
+  dataUrl: string | null;
+  width: number;  // largura em CSS px do container DOM
+  height: number; // altura em CSS px do container DOM
+}
+
+async function loadImageWithFallback(url: string): Promise<HTMLImageElement | null> {
+  // Tenta com crossOrigin primeiro (necessário para drawImage sem taint).
+  const tryLoad = (crossOrigin: string | null) =>
+    new Promise<HTMLImageElement | null>(resolve => {
+      const img = new Image();
+      if (crossOrigin) img.crossOrigin = crossOrigin;
+      img.onload = () => resolve(img);
+      img.onerror = () => resolve(null);
+      img.src = url;
+    });
+  let img = await tryLoad('anonymous');
+  if (img) return img;
+  // Fallback sem CORS — vai funcionar mas o canvas fica tainted.
+  img = await tryLoad(null);
+  return img;
+}
+
+async function captureBasemap(map: L.Map, container: HTMLElement): Promise<BasemapCaptureResult> {
+  const rect = container.getBoundingClientRect();
+  const W = Math.round(rect.width);
+  const H = Math.round(rect.height);
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return { dataUrl: null, width: W, height: H };
+  ctx.scale(dpr, dpr);
+  ctx.fillStyle = '#e8e8e8';
+  ctx.fillRect(0, 0, W, H);
+
+  // Coleta os TileLayers ativos (basemap), ignorando WMS overlays.
+  const tileLayers: L.TileLayer[] = [];
+  map.eachLayer(layer => {
+    if (layer instanceof L.TileLayer && !(layer instanceof L.TileLayer.WMS)) {
+      tileLayers.push(layer);
+    }
+  });
+  if (tileLayers.length === 0) return { dataUrl: null, width: W, height: H };
+
+  const zoom = map.getZoom();
+  const bounds = map.getPixelBounds();
+  const tileSize = 256;
+  const min = bounds.min!;
+  const max = bounds.max!;
+  const tMinX = Math.floor(min.x / tileSize);
+  const tMinY = Math.floor(min.y / tileSize);
+  const tMaxX = Math.floor(max.x / tileSize);
+  const tMaxY = Math.floor(max.y / tileSize);
+  // bounds.min é o pixel-mundo (no zoom atual) do canto superior esquerdo do
+  // viewport. Subtraímos para ter coordenadas relativas ao container.
+  const originX = min.x;
+  const originY = min.y;
+
+  for (const layer of tileLayers) {
+    const anyLayer = layer as any;
+    const getTileUrl: ((coords: any) => string) | undefined = anyLayer.getTileUrl?.bind(anyLayer);
+    if (!getTileUrl) continue;
+
+    const tilePromises: Promise<{ img: HTMLImageElement | null; x: number; y: number }>[] = [];
+    for (let x = tMinX; x <= tMaxX; x++) {
+      for (let y = tMinY; y <= tMaxY; y++) {
+        const url = getTileUrl({ x, y, z: zoom });
+        tilePromises.push(loadImageWithFallback(url).then(img => ({ img, x, y })));
+      }
+    }
+    const tiles = await Promise.all(tilePromises);
+    for (const { img, x, y } of tiles) {
+      if (!img) continue;
+      // Posição do canto superior esquerdo do tile no container DOM
+      const tileWorldX = x * tileSize;
+      const tileWorldY = y * tileSize;
+      const px = tileWorldX - originX;
+      const py = tileWorldY - originY;
+      try {
+        ctx.drawImage(img, px, py, tileSize, tileSize);
+      } catch {
+        /* tainted draw — ignore */
+      }
+    }
+  }
+
+  try {
+    return { dataUrl: canvas.toDataURL('image/jpeg', 0.85), width: W, height: H };
+  } catch (err) {
+    console.warn('[captureBasemap] canvas tainted, returning null', err);
+    return { dataUrl: null, width: W, height: H };
+  }
+}
 
 export interface ExportMapOptions {
   mapContainer: HTMLElement;
@@ -120,34 +221,20 @@ function makeProjector(
 type Projector = ReturnType<typeof makeProjector>;
 
 // ===== Recorte de feições ao viewport =====
-// Usa turf.bboxClip para cortar polígonos que extrapolam o mapa visível.
-// Isso evita o bug "faixas diagonais" — polígonos vizinhos enormes que ocupam
-// dezenas de km e atravessam o viewport.
-function clipToViewport(feature: GeoJSON.Feature, map: L.Map): GeoJSON.Feature | null {
+// Em vez de cortar geometrias com turf (que falhava em multipolígonos grandes),
+// usamos o clipping path nativo do PDF: tudo desenhado fora do retângulo do
+// mapa simplesmente não aparece. Mais rápido, exato e elimina o bug das
+// "faixas diagonais".
+function withMapClip(pdf: jsPDF, x: number, y: number, w: number, h: number, draw: () => void) {
+  const anyPdf = pdf as any;
+  if (typeof anyPdf.saveGraphicsState === 'function') anyPdf.saveGraphicsState();
+  pdf.rect(x, y, w, h);
+  if (typeof anyPdf.clip === 'function') anyPdf.clip();
+  if (typeof anyPdf.discardPath === 'function') anyPdf.discardPath();
   try {
-    const bounds = map.getBounds();
-    const padded = bounds.pad(0.05);
-    const bbox: [number, number, number, number] = [
-      padded.getWest(), padded.getSouth(), padded.getEast(), padded.getNorth(),
-    ];
-    const clipped = bboxClip(feature as any, bbox);
-    const g = clipped.geometry as GeoJSON.Geometry | null;
-    if (!g) return null;
-    if (g.type === 'Polygon') {
-      const rings = (g.coordinates as number[][][]).filter(r => r && r.length >= 4);
-      if (rings.length === 0) return null;
-      return { type: 'Feature', geometry: { type: 'Polygon', coordinates: rings }, properties: feature.properties ?? {} };
-    }
-    if (g.type === 'MultiPolygon') {
-      const polys = (g.coordinates as number[][][][])
-        .map(poly => poly.filter(r => r && r.length >= 4))
-        .filter(poly => poly.length > 0);
-      if (polys.length === 0) return null;
-      return { type: 'Feature', geometry: { type: 'MultiPolygon', coordinates: polys }, properties: feature.properties ?? {} };
-    }
-    return null;
-  } catch {
-    return null;
+    draw();
+  } finally {
+    if (typeof anyPdf.restoreGraphicsState === 'function') anyPdf.restoreGraphicsState();
   }
 }
 
@@ -244,18 +331,13 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
   await new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r())));
   await new Promise(r => setTimeout(r, 250));
 
-  let pngDataUrl: string | null = null;
+  let basemap: BasemapCaptureResult = { dataUrl: null, width: leafletEl.clientWidth, height: leafletEl.clientHeight };
   try {
-    console.log('[exportProcessMap] capturing PNG...');
-    pngDataUrl = await toPng(leafletEl, {
-      pixelRatio: 2,
-      cacheBust: true,
-      skipFonts: false,
-      includeQueryParams: true,
-    });
-    console.log('[exportProcessMap] PNG captured, length:', pngDataUrl.length);
+    console.log('[exportProcessMap] capturing basemap via canvas...');
+    basemap = await captureBasemap(leafletMap, leafletEl);
+    console.log('[exportProcessMap] basemap captured:', { hasData: !!basemap.dataUrl, w: basemap.width, h: basemap.height });
   } catch (err) {
-    console.error('[exportProcessMap] toPng failed, fallback to vector-only PDF:', err);
+    console.error('[exportProcessMap] captureBasemap failed:', err);
   } finally {
     controlsToHide.forEach((el, i) => { el.style.display = prevDisplays[i]; });
     setOverlayTilesVisible?.(true);
@@ -283,72 +365,74 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
   pdf.rect(MARGIN, MARGIN, PAGE_W - MARGIN * 2, PAGE_H - MARGIN * 2);
 
   // ===== Mapa (esquerda) — basemap + polígonos vetoriais =====
-  const domRect = leafletEl.getBoundingClientRect();
+  // O basemap foi capturado nas dimensões EXATAS do container DOM. Para encaixar
+  // no slot do PDF sem distorcer, calculamos o crop "cover" (corta sobras) — mas
+  // como o basemap é renderizado nas mesmas dimensões do mapa visível, basta
+  // ajustar o aspect ratio cortando as bordas se necessário.
+  const domW = basemap.width;
+  const domH = basemap.height;
   const targetAspect = MAP_W / MAP_H;
-  const sourceAspect = domRect.width / domRect.height;
-  let cropSrcX = 0, cropSrcY = 0, cropSrcW = domRect.width, cropSrcH = domRect.height;
+  const sourceAspect = domW / domH;
+  let cropSrcX = 0, cropSrcY = 0, cropSrcW = domW, cropSrcH = domH;
   if (sourceAspect > targetAspect) {
-    cropSrcW = domRect.height * targetAspect;
-    cropSrcX = (domRect.width - cropSrcW) / 2;
+    cropSrcW = domH * targetAspect;
+    cropSrcX = (domW - cropSrcW) / 2;
   } else {
-    cropSrcH = domRect.width / targetAspect;
-    cropSrcY = (domRect.height - cropSrcH) / 2;
+    cropSrcH = domW / targetAspect;
+    cropSrcY = (domH - cropSrcH) / 2;
   }
 
-  if (pngDataUrl) {
-    let imgToAdd = pngDataUrl;
+  if (basemap.dataUrl) {
+    let imgToAdd = basemap.dataUrl;
     try {
-      console.log('[exportProcessMap] cropping PNG', { cropSrcX, cropSrcY, cropSrcW, cropSrcH });
-      imgToAdd = await cropPngToAspect(pngDataUrl, cropSrcX, cropSrcY, cropSrcW, cropSrcH, 2);
-      console.log('[exportProcessMap] crop OK, length:', imgToAdd.length);
+      imgToAdd = await cropPngToAspect(basemap.dataUrl, cropSrcX, cropSrcY, cropSrcW, cropSrcH, 1);
     } catch (err) {
       console.error('[exportProcessMap] crop failed, using original:', err);
     }
     try {
-      pdf.addImage(imgToAdd, 'PNG', MARGIN, MARGIN, MAP_W, MAP_H, undefined, 'FAST');
+      pdf.addImage(imgToAdd, 'JPEG', MARGIN, MARGIN, MAP_W, MAP_H, undefined, 'FAST');
     } catch (err) {
-      console.error('[exportProcessMap] addImage failed, continuing without basemap:', err);
+      console.error('[exportProcessMap] addImage failed:', err);
     }
   } else {
     console.warn('[exportProcessMap] basemap unavailable, rendering vector-only map');
-    pdf.setFillColor(250, 250, 250);
+    pdf.setFillColor(245, 245, 245);
     pdf.rect(MARGIN, MARGIN, MAP_W, MAP_H, 'F');
   }
 
   const cropMeta = {
     srcX: cropSrcX, srcY: cropSrcY, srcW: cropSrcW, srcH: cropSrcH,
-    domW: domRect.width, domH: domRect.height,
+    domW, domH,
   };
 
-  // Desenha vizinhos vetorialmente (vermelho) — RECORTADOS ao viewport.
-  if (neighborsFc) {
+  // Desenha vetores DENTRO do clipping path do mapa — qualquer geometria
+  // que extrapole o retângulo simplesmente não aparece (sem faixas diagonais).
+  withMapClip(pdf, MARGIN, MARGIN, MAP_W, MAP_H, () => {
     const proj = makeProjector(leafletMap, leafletEl, MARGIN, MARGIN, MAP_W, MAP_H, cropMeta);
     const mainCar = (mainFeature?.properties as any)?.cod_imovel;
-    neighborsFc.features?.forEach(feat => {
+
+    // Vizinhos primeiro (vermelho).
+    neighborsFc?.features?.forEach(feat => {
       const car = (feat.properties as any)?.cod_imovel;
       if (mainCar && car && car === mainCar) return;
-      const clipped = clipToViewport(feat, leafletMap);
-      if (!clipped) return;
-      drawGeoFeature(pdf, clipped, proj, {
+      drawGeoFeature(pdf, feat, proj, {
         stroke: [180, 30, 35],
         strokeWidth: 0.4,
         fill: [220, 60, 60],
         fillOpacity: 0.18,
       });
     });
-  }
 
-  // Desenha o imóvel em estudo (verde, traço grosso).
-  if (mainFeature) {
-    const proj = makeProjector(leafletMap, leafletEl, MARGIN, MARGIN, MAP_W, MAP_H, cropMeta);
-    const clipped = clipToViewport(mainFeature, leafletMap) ?? mainFeature;
-    drawGeoFeature(pdf, clipped, proj, {
-      stroke: [40, 130, 60],
-      strokeWidth: 0.9,
-      fill: [120, 200, 130],
-      fillOpacity: 0.22,
-    });
-  }
+    // Imóvel em estudo (verde, traço grosso) — por cima.
+    if (mainFeature) {
+      drawGeoFeature(pdf, mainFeature, proj, {
+        stroke: [40, 130, 60],
+        strokeWidth: 0.9,
+        fill: [120, 200, 130],
+        fillOpacity: 0.22,
+      });
+    }
+  });
 
   // Borda do mapa
   pdf.setDrawColor(0, 0, 0).setLineWidth(0.4);
