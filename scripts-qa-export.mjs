@@ -53,15 +53,8 @@ function drawGraphicScale(pdf, x, y, width, scale) {
 
 // PNG placeholder — 1200x800 verde escuro (simula tile satélite)
 async function makePlaceholderPng() {
-  const { Buffer } = await import('node:buffer');
-  // Gera um PNG simples 1200x800 verde via canvas seria complexo — usa um JPEG
-  // gerado offline em base64 (cor sólida verde). Aqui carrega de um arquivo.
-  // Para simplificar, usa um data URL muito pequeno (1×1 verde) e jsPDF estica.
-  const px = Buffer.from([
-    137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,1,0,0,0,1,8,2,0,0,0,144,119,83,222,
-    0,0,0,12,73,68,65,84,8,153,99,72,205,99,248,15,0,1,134,1,73,71,202,210,206,0,0,0,0,73,69,78,68,174,66,96,130,
-  ]);
-  return 'data:image/png;base64,' + px.toString('base64');
+  const b64 = fs.readFileSync('/tmp/placeholder.b64', 'utf8').trim();
+  return 'data:image/png;base64,' + b64;
 }
 
 const opts = {
