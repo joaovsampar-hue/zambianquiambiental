@@ -174,8 +174,10 @@ export async function fetchTouchingNeighbors(
   // sem pegar imóveis distantes. O índice espacial do GeoServer cuida do filtro.
   const [minLng, minLat, maxLng, maxLat] = geometryBBox(geometry);
   const buffer = 0.0005;
-  // BBOX no WFS 2.0 + EPSG:4326 usa ordem lat,lng,lat,lng (eixo invertido vs GeoJSON).
-  const bbox = `${minLat - buffer},${minLng - buffer},${maxLat + buffer},${maxLng + buffer},EPSG:4326`;
+  // ATENÇÃO: o GeoServer SICAR aceita BBOX no formato lng,lat,lng,lat com EPSG:4326
+  // (NÃO segue a regra do WFS 2.0 de eixo invertido). Validado empiricamente:
+  // com lat,lng a query retorna 0 features; com lng,lat retorna o esperado.
+  const bbox = `${minLng - buffer},${minLat - buffer},${maxLng + buffer},${maxLat + buffer},EPSG:4326`;
   const exclude = sanitizeCar(excludeCar);
 
   // ATENÇÃO: NÃO combine `bbox` com `CQL_FILTER` no SICAR — testes empíricos
