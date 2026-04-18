@@ -204,7 +204,7 @@ export default function NewProcessPage() {
                       </p>
                     )}
                     <p className="text-xs text-muted-foreground">
-                      Aceita o número com ou sem pontos. Pressione Enter ou clique em Localizar para centralizar o mapa.
+                      Aceita com ou sem pontos. Pressione Enter ou clique em Buscar polígono — o imóvel é carregado direto do SICAR.
                     </p>
                   </div>
 
