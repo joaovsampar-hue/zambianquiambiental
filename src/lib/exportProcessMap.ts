@@ -110,7 +110,7 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
     pdf.setFontSize(10);
     const w = pdf.getTextWidth(txt) + 4;
     pdf.rect(MARGIN + 3, MARGIN + MAP_H - 9, w, 6, 'FD');
-    pdf.setTextColor(0).text(txt, MARGIN + 5, MARGIN + MAP_H - 4.5);
+    pdf.setTextColor(0,0,0).text(txt, MARGIN + 5, MARGIN + MAP_H - 4.5);
   }
 
   // Seta-norte (canto superior esquerdo do mapa)
@@ -132,7 +132,7 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
   // Linha separadora
   pdf.setDrawColor(180).line(PANEL_X + 3, cursorY + 16, PANEL_X + PANEL_W - 3, cursorY + 16);
   // Título do mapa (multi-linha)
-  pdf.setFontSize(9).setFont('helvetica', 'bold').setTextColor(0);
+  pdf.setFontSize(9).setFont('helvetica', 'bold').setTextColor(0,0,0);
   const titleLines = pdf.splitTextToSize(title, PANEL_W - 6);
   pdf.text(titleLines, PANEL_X + PANEL_W / 2, cursorY + 22, { align: 'center', baseline: 'top' });
   cursorY += block1H;
@@ -140,7 +140,7 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
   // Bloco 2: Informações cartográficas
   const block2H = 40;
   pdf.rect(PANEL_X, cursorY, PANEL_W, block2H);
-  pdf.setFontSize(9).setFont('helvetica', 'bold').setTextColor(0);
+  pdf.setFontSize(9).setFont('helvetica', 'bold').setTextColor(0,0,0);
   pdf.text('Informações Cartográficas', PANEL_X + PANEL_W / 2, cursorY + 5, { align: 'center' });
   pdf.setFontSize(7.5).setFont('helvetica', 'normal');
   const center = leafletMap.getCenter();
@@ -164,7 +164,7 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
   // Bloco 3: Legenda
   const block3H = 70;
   pdf.rect(PANEL_X, cursorY, PANEL_W, block3H);
-  pdf.setFontSize(10).setFont('helvetica', 'bold').setTextColor(0);
+  pdf.setFontSize(10).setFont('helvetica', 'bold').setTextColor(0,0,0);
   pdf.text('LEGENDA', PANEL_X + PANEL_W / 2, cursorY + 6, { align: 'center' });
   const legend: Array<{ color: [number, number, number]; border?: [number, number, number]; hatch?: boolean; outline?: boolean; label: string }> = [
     { color: [180, 30, 35], label: 'Imóveis Certificados — SIGEF' },
@@ -194,7 +194,7 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
       pdf.setDrawColor(0,0,0).setLineWidth(0.2);
       pdf.rect(sx, y, 8, 5, 'FD');
     }
-    pdf.setFontSize(8).setFont('helvetica', 'normal').setTextColor(0);
+    pdf.setFontSize(8).setFont('helvetica', 'normal').setTextColor(0,0,0);
     pdf.text(item.label, sx + 11, y + 3.7);
   });
   cursorY += block3H;
@@ -205,7 +205,7 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
   if (responsibleName) {
     pdf.setDrawColor(80).setLineWidth(0.3);
     pdf.line(PANEL_X + 6, cursorY + block4H - 14, PANEL_X + PANEL_W - 6, cursorY + block4H - 14);
-    pdf.setFontSize(8).setFont('helvetica', 'normal').setTextColor(0);
+    pdf.setFontSize(8).setFont('helvetica', 'normal').setTextColor(0,0,0);
     pdf.text(responsibleName, PANEL_X + PANEL_W / 2, cursorY + block4H - 10, { align: 'center' });
     if (responsibleRegistry) {
       pdf.setFontSize(7);
@@ -223,11 +223,11 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
 
 function drawNorthArrow(pdf: jsPDF, x: number, y: number, size: number) {
   // Triângulo preto apontando pra cima + "N"
-  pdf.setFillColor(0,0,0).setDrawColor(0);
+  pdf.setFillColor(0,0,0).setDrawColor(0,0,0);
   pdf.triangle(x + size / 2, y, x, y + size, x + size, y + size, 'F');
   pdf.setFillColor(255, 255, 255);
   pdf.triangle(x + size / 2, y + size * 0.25, x + size * 0.25, y + size * 0.95, x + size * 0.75, y + size * 0.95, 'F');
-  pdf.setFillColor(0,0,0).setFontSize(7).setFont('helvetica', 'bold').setTextColor(0);
+  pdf.setFillColor(0,0,0).setFontSize(7).setFont('helvetica', 'bold').setTextColor(0,0,0);
   pdf.text('N', x + size / 2, y + size + 3, { align: 'center' });
 }
 
@@ -253,7 +253,7 @@ function drawGraphicScale(pdf: jsPDF, x: number, y: number, width: number, scale
     pdf.rect(x + i * realSegW, y, realSegW, 1.8, 'FD');
   }
   // Rótulos
-  pdf.setFontSize(6).setTextColor(0);
+  pdf.setFontSize(6).setTextColor(0,0,0);
   pdf.text('0', x, y + 5, { align: 'center' });
   pdf.text(`${((niceMeters * SEG) / 2).toLocaleString('pt-BR')} m`, x + realTotalW / 2, y + 5, { align: 'center' });
   pdf.text(`${(niceMeters * SEG).toLocaleString('pt-BR')} m`, x + realTotalW, y + 5, { align: 'center' });
