@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -8,13 +8,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import Breadcrumb from '@/components/Breadcrumb';
-import PropertyMap from '@/components/map/PropertyMap';
+import PropertyMap, { type PropertyMapHandle } from '@/components/map/PropertyMap';
 import NeighborsList from '@/components/process/NeighborsList';
 import DetectedNeighborsPanel, { type DetectedNeighbor } from '@/components/process/DetectedNeighborsPanel';
 import { sanitizeCar } from '@/lib/sicar';
 import { STAGES, stageLabel, serviceLabel } from '@/lib/processStages';
 import { useToast } from '@/hooks/use-toast';
-import { FileText, MapPin } from 'lucide-react';
+import { exportProcessMap } from '@/lib/exportProcessMap';
+import { FileText, MapPin, Download } from 'lucide-react';
 
 export default function ProcessDetailPage() {
   const { id } = useParams<{ id: string }>();
