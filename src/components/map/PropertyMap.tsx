@@ -98,8 +98,7 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
   const [neighborStatus, setNeighborStatus] = useState<'idle' | 'loading' | 'done' | 'empty' | 'error'>('idle');
   const [neighborCount, setNeighborCount] = useState(0);
   // Status da camada SIGEF — alimenta um badge separado quando ativa.
-  const [sigefStatus, setSigefStatus] = useState<'idle' | 'zoomout' | 'loading' | 'done' | 'empty' | 'error'>('idle');
-  const [sigefCount, setSigefCount] = useState(0);
+  // (sigefStatus removido — SIGEF agora é tile WMS, não há fetch dinâmico para reportar.)
   const dataRef = useRef<MapData>({
     geojson: initialData?.geojson ?? null,
     reference_lat: initialData?.reference_lat ?? null,
