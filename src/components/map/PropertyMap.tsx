@@ -280,6 +280,7 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
       };
       update({ geojson: feat, source: 'sicar' });
       renderGeometry(dataRef.current);
+      onCarLoaded?.(result.feature.cod_imovel);
 
       // Buscar vizinhos (não-bloqueante, ignora erro)
       try {
