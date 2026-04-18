@@ -230,7 +230,7 @@ export async function fetchTouchingNeighbors(
     // Timeout client-side: SICAR pode levar 30s+ — não vale a pena esperar.
     const ctrl = new AbortController();
     const timeoutId = setTimeout(() => ctrl.abort(), 25000);
-    const resp = await fetch(`${SICAR_WFS}?${params.toString()}`, { signal: ctrl.signal });
+    const resp = await fetchWithRetry(`${SICAR_WFS}?${params.toString()}`, { signal: ctrl.signal });
     clearTimeout(timeoutId);
     if (!resp.ok) return null;
     const fc = (await resp.json()) as GeoJSON.FeatureCollection;
