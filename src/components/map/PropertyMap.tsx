@@ -513,8 +513,20 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     lg.clearLayers();
 
     if (d.geojson) {
+      // ITEM 6 — Camada 2 (Imóvel do cliente): verde #1D9E75, sem preenchimento, stroke 2.5px.
       const gj = L.geoJSON(d.geojson, {
-        style: { color: 'hsl(152,55%,28%)', weight: 3, fillOpacity: 0.25, fillColor: 'hsl(152,55%,38%)' },
+        style: { color: '#1D9E75', weight: 2.5, opacity: 1, fillOpacity: 0 },
+      });
+      // Tooltip com denominação + área (item 6).
+      gj.eachLayer((layer: any) => {
+        const feat = layer.feature as GeoJSON.Feature | undefined;
+        const props = (feat?.properties ?? {}) as any;
+        const denom = props.denomination || props.cod_imovel || 'Imóvel do cliente';
+        const area = Number(props.area ?? 0);
+        const tip = area > 0
+          ? `<strong>${denom}</strong><br/>${area.toFixed(2)} ha`
+          : `<strong>${denom}</strong>`;
+        layer.bindTooltip(tip, { sticky: true, direction: 'top' });
       });
       gj.addTo(lg);
       try {
@@ -544,17 +556,18 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
   //   - VERDE  → já cadastrado como confrontante (precedência máxima)
   //   - AZUL FORTE → selecionado no painel pra cadastro em lote
   //   - AZUL CLARO → detectado mas não selecionado
+  // ITEM 6 — Camada 3 (Confrontantes): azul #378ADD com fill opacity 0.25,
+  // stroke #185FA5 1.5px com opacidade 0.9. Já cadastrados ganham destaque verde.
   const styleForNeighbor = (car: string): L.PathOptions => {
     const sanitized = sanitizeCar(car);
     const isRegistered = registeredNeighborsRef.current.has(sanitized);
     if (isRegistered) {
-      // Cinza neutro pra distinguir do verde do imóvel principal (cliente).
-      return { color: 'hsl(0,0%,40%)', weight: 2, fillColor: 'hsl(0,0%,55%)', fillOpacity: 0.35 };
+      return { color: '#155E48', weight: 2, fillColor: '#1D9E75', fillOpacity: 0.35, opacity: 1 };
     }
     const isSelected = selectedNeighborsRef.current.has(sanitized);
     return isSelected
-      ? { color: '#1D4ED8', weight: 2.5, fillColor: '#3B82F6', fillOpacity: 0.45 }
-      : { color: '#3B82F6', weight: 1, fillColor: '#85B7EB', fillOpacity: 0.15 };
+      ? { color: '#185FA5', weight: 2.5, fillColor: '#378ADD', fillOpacity: 0.45, opacity: 1 }
+      : { color: '#185FA5', weight: 1.5, fillColor: '#378ADD', fillOpacity: 0.25, opacity: 0.9 };
   };
 
   const renderNeighbors = (fc: GeoJSON.FeatureCollection, mainCar: string) => {
