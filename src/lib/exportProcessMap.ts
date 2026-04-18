@@ -70,14 +70,50 @@ async function urlToDataUrl(url: string): Promise<string | null> {
   }
 }
 
+// Recorta um dataURL PNG para uma sub-região (em px do DOM) — preserva o
+// aspect ratio do slot do PDF sem distorcer. `pixelRatio` precisa bater com o
+// usado em toPng() (estamos usando 2).
+async function cropPngToAspect(
+  pngDataUrl: string,
+  srcXdom: number, srcYdom: number, srcWdom: number, srcHdom: number,
+  pixelRatio: number,
+): Promise<string> {
+  const img = await new Promise<HTMLImageElement>((res, rej) => {
+    const im = new Image();
+    im.onload = () => res(im);
+    im.onerror = rej;
+    im.src = pngDataUrl;
+  });
+  const sx = Math.round(srcXdom * pixelRatio);
+  const sy = Math.round(srcYdom * pixelRatio);
+  const sw = Math.round(srcWdom * pixelRatio);
+  const sh = Math.round(srcHdom * pixelRatio);
+  const canvas = document.createElement('canvas');
+  canvas.width = sw;
+  canvas.height = sh;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return pngDataUrl;
+  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+  return canvas.toDataURL('image/png');
+}
+
 // ===== Projeção lat/lng → coordenadas no PDF =====
-function makeProjector(map: L.Map, mapDom: HTMLElement, pdfX: number, pdfY: number, pdfW: number, pdfH: number) {
-  const rect = mapDom.getBoundingClientRect();
-  const scaleX = pdfW / rect.width;
-  const scaleY = pdfH / rect.height;
+// Como o PNG do basemap é RECORTADO para o aspect ratio do slot do PDF (sem
+// distorcer), o projetor precisa usar o MESMO recorte: pega o ponto na imagem
+// original, subtrai o offset do crop, e escala pela razão do crop visível.
+function makeProjector(
+  map: L.Map,
+  mapDom: HTMLElement,
+  pdfX: number, pdfY: number, pdfW: number, pdfH: number,
+  crop: { srcX: number; srcY: number; srcW: number; srcH: number; domW: number; domH: number },
+) {
+  // domW/domH = dimensões do container DOM real (em CSS px)
+  // srcX/srcY/srcW/srcH = sub-região (em CSS px do DOM) que vira o conteúdo do PDF
+  const scaleX = pdfW / crop.srcW;
+  const scaleY = pdfH / crop.srcH;
   return (lat: number, lng: number): [number, number] => {
     const p = map.latLngToContainerPoint([lat, lng]);
-    return [pdfX + p.x * scaleX, pdfY + p.y * scaleY];
+    return [pdfX + (p.x - crop.srcX) * scaleX, pdfY + (p.y - crop.srcY) * scaleY];
   };
 }
 
@@ -237,14 +273,37 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
   pdf.rect(MARGIN, MARGIN, PAGE_W - MARGIN * 2, PAGE_H - MARGIN * 2);
 
   // ===== Mapa (esquerda) — basemap + polígonos vetoriais =====
-  pdf.addImage(pngDataUrl, 'PNG', MARGIN, MARGIN, MAP_W, MAP_H, undefined, 'FAST');
+  // Recorta o PNG capturado ao aspect ratio do slot do PDF (sem distorcer).
+  // Mantém o centro do mapa visível — o que o usuário vê na tela é o que entra
+  // no PDF, só com as bordas (lateral ou topo/base) cortadas.
+  const domRect = leafletEl.getBoundingClientRect();
+  const targetAspect = MAP_W / MAP_H;
+  const sourceAspect = domRect.width / domRect.height;
+  let cropSrcX = 0, cropSrcY = 0, cropSrcW = domRect.width, cropSrcH = domRect.height;
+  if (sourceAspect > targetAspect) {
+    // imagem mais larga → corta as laterais
+    cropSrcW = domRect.height * targetAspect;
+    cropSrcX = (domRect.width - cropSrcW) / 2;
+  } else {
+    // imagem mais alta → corta topo/base
+    cropSrcH = domRect.width / targetAspect;
+    cropSrcY = (domRect.height - cropSrcH) / 2;
+  }
+
+  // Faz o crop do PNG via canvas, em px reais (pixelRatio=2 do toPng).
+  const croppedPng = await cropPngToAspect(pngDataUrl, cropSrcX, cropSrcY, cropSrcW, cropSrcH, 2);
+  pdf.addImage(croppedPng, 'PNG', MARGIN, MARGIN, MAP_W, MAP_H, undefined, 'FAST');
+
+  const cropMeta = {
+    srcX: cropSrcX, srcY: cropSrcY, srcW: cropSrcW, srcH: cropSrcH,
+    domW: domRect.width, domH: domRect.height,
+  };
 
   // Desenha vizinhos vetorialmente (vermelho) — RECORTADOS ao viewport.
   if (neighborsFc) {
-    const proj = makeProjector(leafletMap, leafletEl, MARGIN, MARGIN, MAP_W, MAP_H);
+    const proj = makeProjector(leafletMap, leafletEl, MARGIN, MARGIN, MAP_W, MAP_H, cropMeta);
     const mainCar = (mainFeature?.properties as any)?.cod_imovel;
     neighborsFc.features?.forEach(feat => {
-      // Pula a feição principal se ela aparecer na coleção de vizinhos.
       const car = (feat.properties as any)?.cod_imovel;
       if (mainCar && car && car === mainCar) return;
       const clipped = clipToViewport(feat, leafletMap);
@@ -258,9 +317,9 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
     });
   }
 
-  // Desenha o imóvel em estudo (verde, traço grosso) — também recortado.
+  // Desenha o imóvel em estudo (verde, traço grosso).
   if (mainFeature) {
-    const proj = makeProjector(leafletMap, leafletEl, MARGIN, MARGIN, MAP_W, MAP_H);
+    const proj = makeProjector(leafletMap, leafletEl, MARGIN, MARGIN, MAP_W, MAP_H, cropMeta);
     const clipped = clipToViewport(mainFeature, leafletMap) ?? mainFeature;
     drawGeoFeature(pdf, clipped, proj, {
       stroke: [40, 130, 60],
