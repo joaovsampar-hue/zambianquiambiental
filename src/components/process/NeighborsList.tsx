@@ -11,7 +11,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { useToast } from '@/hooks/use-toast';
 import PropertyMap from '@/components/map/PropertyMap';
 import { exportNeighborsToExcel } from '@/lib/exportNeighbors';
-import { Plus, Trash2, FileSpreadsheet, MousePointerClick, MapPin, Edit, FileText, Loader2 } from 'lucide-react';
+import { Plus, Trash2, FileSpreadsheet, MousePointerClick, MapPin, Edit, FileText, Loader2, AlertTriangle } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 
 interface Props {
   processId: string;
@@ -333,6 +334,19 @@ export default function NeighborsList({ processId, clientName, processNumber, ca
                 <DialogTitle>{editingId ? 'Editar confrontante' : 'Novo confrontante'}</DialogTitle>
               </DialogHeader>
 
+              {/* Aviso quando o confrontante veio do SICAR e ainda não tem dados extraídos */}
+              {editingId && form.car_number && !form.full_name && !form.cpf_cnpj && (
+                <div className="rounded-lg border border-warning/40 bg-warning/10 p-3 flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-warning mt-0.5 shrink-0" />
+                  <div className="text-xs">
+                    <p className="font-medium text-warning-foreground">Dados pendentes</p>
+                    <p className="text-muted-foreground">
+                      Este confrontante foi detectado pelo SICAR (apenas polígono e CAR). Faça upload da matrícula abaixo para que a IA extraia proprietário, regime de casamento, CCIR, cônjuge e demais dados.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* Botão de análise por IA — extrai todos os dados do PDF da matrícula */}
               <div className="rounded-lg border border-dashed border-primary/40 bg-primary/5 p-3 space-y-2">
                 <div className="flex items-center justify-between gap-3">
@@ -583,10 +597,19 @@ export default function NeighborsList({ processId, clientName, processNumber, ca
               </tr>
             </thead>
             <tbody>
-              {(neighbors as any[]).map(n => (
+              {(neighbors as any[]).map(n => {
+                const needsExtraction = !n.full_name && !n.cpf_cnpj && n.car_number;
+                return (
                 <tr key={n.id} className="border-t border-border hover:bg-muted/30">
                   <td className="p-2 text-xs">{n.positions?.join(', ') || '—'}</td>
-                  <td className="p-2">{n.full_name || <span className="text-muted-foreground italic">sem nome</span>}</td>
+                  <td className="p-2">
+                    {n.full_name || <span className="text-muted-foreground italic">sem nome</span>}
+                    {needsExtraction && (
+                      <Badge variant="outline" className="ml-2 border-warning/50 text-warning text-[10px] px-1.5 py-0">
+                        sem matrícula
+                      </Badge>
+                    )}
+                  </td>
                   <td className="p-2 text-xs">{n.registration_number || '—'}</td>
                   <td className="p-2 text-xs">{n.ccir_number || '—'}</td>
                   <td className="p-2 text-xs">{n.phones?.[0]?.number || '—'}</td>
@@ -604,7 +627,8 @@ export default function NeighborsList({ processId, clientName, processNumber, ca
                     </Button>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
