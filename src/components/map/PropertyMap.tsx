@@ -238,24 +238,28 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     if (loadedCarsRef.current.has(mainCar)) return;
     loadedCarsRef.current.add(mainCar);
     (async () => {
+      setNeighborStatus('loading');
       try {
         const neighbors = await fetchTouchingNeighbors(uf, geom, mainCar);
-        if (!neighbors) return;
-        renderNeighbors(neighbors, mainCar);
-        if (onNeighborsDetected) {
-          const list = (neighbors.features ?? [])
-            .map(f => f.properties as any)
-            .filter(p => p?.cod_imovel && p.cod_imovel !== mainCar)
-            .map(p => ({
-              car: String(p.cod_imovel),
-              area: Number(p.area ?? 0),
-              municipio: String(p.municipio ?? ''),
-              uf: String(p.uf ?? uf),
-            }));
-          onNeighborsDetected(list);
+        if (!neighbors) {
+          setNeighborStatus('error');
+          return;
         }
+        renderNeighbors(neighbors, mainCar);
+        const list = (neighbors.features ?? [])
+          .map(f => f.properties as any)
+          .filter(p => p?.cod_imovel && p.cod_imovel !== mainCar)
+          .map(p => ({
+            car: String(p.cod_imovel),
+            area: Number(p.area ?? 0),
+            municipio: String(p.municipio ?? ''),
+            uf: String(p.uf ?? uf),
+          }));
+        setNeighborCount(list.length);
+        setNeighborStatus(list.length > 0 ? 'done' : 'empty');
+        onNeighborsDetected?.(list);
       } catch {
-        /* ignore neighbor fetch errors */
+        setNeighborStatus('error');
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
