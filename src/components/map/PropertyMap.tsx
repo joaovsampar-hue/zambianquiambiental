@@ -97,6 +97,15 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
   // Refs para handlers chamados de dentro de listeners do Leaflet (registrados 1x).
   const identifyRef = useRef<(lat: number, lng: number) => Promise<void>>(async () => {});
   const loadedCarsRef = useRef<Set<string>>(new Set());
+  // Mapa CAR → layer Leaflet do polígono vizinho. Permite re-estilizar
+  // quando a seleção do painel muda, sem refazer toda a render.
+  const neighborLayersRef = useRef<Map<string, L.Path>>(new Map());
+  // Refs com versão sempre-atual das props que dependem do React state —
+  // usadas dentro de handlers do popup que são registrados uma única vez.
+  const selectedNeighborsRef = useRef<Set<string>>(selectedNeighbors ?? new Set());
+  const onNeighborToggleRef = useRef<typeof onNeighborToggle>(onNeighborToggle);
+  selectedNeighborsRef.current = selectedNeighbors ?? new Set();
+  onNeighborToggleRef.current = onNeighborToggle;
 
   useImperativeHandle(ref, () => ({
     flyToUF: (uf: string) => {
