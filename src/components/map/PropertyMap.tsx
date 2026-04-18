@@ -84,12 +84,14 @@ interface Props {
   onNeighborToggle?: (car: string) => void;
   /** CARs já cadastrados como confrontantes — pintados em verde (e não permitem cadastro duplicado). */
   registeredNeighbors?: Set<string>;
+  /** Rótulo amigável para o tooltip do polígono principal (ex: denominação do imóvel). */
+  mainPropertyLabel?: string;
 }
 
 const BASE_LAYER_KEY = 'geodoc.map.baseLayer';
 
 const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
-  { initialData, onChange, height = '500px', readOnly, carNumber, onCarLoaded, onNeighborPick, onNeighborsDetected, selectedNeighbors, onNeighborToggle, registeredNeighbors },
+  { initialData, onChange, height = '500px', readOnly, carNumber, onCarLoaded, onNeighborPick, onNeighborsDetected, selectedNeighbors, onNeighborToggle, registeredNeighbors, mainPropertyLabel },
   ref,
 ) {
   const mapRef = useRef<HTMLDivElement>(null);
