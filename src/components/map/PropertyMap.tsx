@@ -793,31 +793,63 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
           {fullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
           <span className="ml-1.5 hidden sm:inline">{fullscreen ? 'Reduzir' : 'Expandir'}</span>
         </Button>
-        {neighborStatus !== 'idle' && (
-          <div className="absolute top-2 right-14 z-[400]">
-            {neighborStatus === 'loading' && (
-              <Badge className="bg-info/15 text-info border-info/30 shadow-md gap-1.5">
-                <Loader2 className="w-3 h-3 animate-spin" />
-                Buscando confrontantes…
-              </Badge>
-            )}
-            {neighborStatus === 'done' && (
-              <Badge className="bg-success/15 text-success border-success/30 shadow-md">
-                {neighborCount} confrontante{neighborCount === 1 ? '' : 's'} detectado{neighborCount === 1 ? '' : 's'}
-              </Badge>
-            )}
-            {neighborStatus === 'empty' && (
-              <Badge className="bg-muted text-muted-foreground border-border shadow-md">
-                Nenhum confrontante detectado
-              </Badge>
-            )}
-            {neighborStatus === 'error' && (
-              <Badge className="bg-destructive/15 text-destructive border-destructive/30 shadow-md">
-                Falha ao consultar SICAR
-              </Badge>
-            )}
-          </div>
-        )}
+        <div className="absolute top-2 right-14 z-[400] flex flex-col items-end gap-1.5">
+          {neighborStatus !== 'idle' && (
+            <>
+              {neighborStatus === 'loading' && (
+                <Badge className="bg-info/15 text-info border-info/30 shadow-md gap-1.5">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Buscando confrontantes…
+                </Badge>
+              )}
+              {neighborStatus === 'done' && (
+                <Badge className="bg-success/15 text-success border-success/30 shadow-md">
+                  {neighborCount} confrontante{neighborCount === 1 ? '' : 's'} detectado{neighborCount === 1 ? '' : 's'}
+                </Badge>
+              )}
+              {neighborStatus === 'empty' && (
+                <Badge className="bg-muted text-muted-foreground border-border shadow-md">
+                  Nenhum confrontante detectado
+                </Badge>
+              )}
+              {neighborStatus === 'error' && (
+                <Badge className="bg-destructive/15 text-destructive border-destructive/30 shadow-md">
+                  Falha ao consultar SICAR
+                </Badge>
+              )}
+            </>
+          )}
+          {sigefStatus !== 'idle' && (
+            <>
+              {sigefStatus === 'loading' && (
+                <Badge className="shadow-md gap-1.5" style={{ backgroundColor: 'hsl(28,90%,95%)', color: 'hsl(28,90%,30%)', borderColor: 'hsl(28,90%,75%)' }}>
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Carregando parcelas SIGEF…
+                </Badge>
+              )}
+              {sigefStatus === 'done' && (
+                <Badge className="shadow-md" style={{ backgroundColor: 'hsl(28,90%,95%)', color: 'hsl(28,90%,30%)', borderColor: 'hsl(28,90%,75%)' }}>
+                  SIGEF: {sigefCount} parcela{sigefCount === 1 ? '' : 's'} visível{sigefCount === 1 ? '' : 'is'}
+                </Badge>
+              )}
+              {sigefStatus === 'empty' && (
+                <Badge className="bg-muted text-muted-foreground border-border shadow-md">
+                  SIGEF: nenhuma parcela na área
+                </Badge>
+              )}
+              {sigefStatus === 'zoomout' && (
+                <Badge className="bg-muted text-muted-foreground border-border shadow-md">
+                  SIGEF: aproxime o zoom (≥ 12) para ver parcelas
+                </Badge>
+              )}
+              {sigefStatus === 'error' && (
+                <Badge className="bg-destructive/15 text-destructive border-destructive/30 shadow-md">
+                  Falha ao carregar SIGEF
+                </Badge>
+              )}
+            </>
+          )}
+        </div>
       </div>
 
       {!readOnly && (
