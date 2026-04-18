@@ -71,13 +71,22 @@ async function urlToDataUrl(url: string): Promise<string | null> {
 }
 
 // ===== Projeção lat/lng → coordenadas no PDF =====
-function makeProjector(map: L.Map, mapDom: HTMLElement, pdfX: number, pdfY: number, pdfW: number, pdfH: number) {
-  const rect = mapDom.getBoundingClientRect();
-  const scaleX = pdfW / rect.width;
-  const scaleY = pdfH / rect.height;
+// Como o PNG do basemap é RECORTADO para o aspect ratio do slot do PDF (sem
+// distorcer), o projetor precisa usar o MESMO recorte: pega o ponto na imagem
+// original, subtrai o offset do crop, e escala pela razão do crop visível.
+function makeProjector(
+  map: L.Map,
+  mapDom: HTMLElement,
+  pdfX: number, pdfY: number, pdfW: number, pdfH: number,
+  crop: { srcX: number; srcY: number; srcW: number; srcH: number; domW: number; domH: number },
+) {
+  // domW/domH = dimensões do container DOM real (em CSS px)
+  // srcX/srcY/srcW/srcH = sub-região (em CSS px do DOM) que vira o conteúdo do PDF
+  const scaleX = pdfW / crop.srcW;
+  const scaleY = pdfH / crop.srcH;
   return (lat: number, lng: number): [number, number] => {
     const p = map.latLngToContainerPoint([lat, lng]);
-    return [pdfX + p.x * scaleX, pdfY + p.y * scaleY];
+    return [pdfX + (p.x - crop.srcX) * scaleX, pdfY + (p.y - crop.srcY) * scaleY];
   };
 }
 
