@@ -59,6 +59,8 @@ interface Props {
   onCarLoaded?: (car: string) => void;
   /** Disparado quando o usuário clica em "Adicionar como confrontante" no popup de um imóvel identificado pelo clique. */
   onNeighborPick?: (info: { car: string; area: number; municipio: string; uf: string }) => void;
+  /** Disparado quando os confrontantes diretos (TOUCHES) são detectados automaticamente após o carregamento do CAR principal. */
+  onNeighborsDetected?: (neighbors: Array<{ car: string; area: number; municipio: string; uf: string }>) => void;
 }
 
 const BASE_LAYER_KEY = 'geodoc.map.baseLayer';
