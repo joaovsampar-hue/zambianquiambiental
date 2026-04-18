@@ -487,52 +487,25 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
   });
   cursorY += block1H;
 
-  // ---- Bloco 2: informações cartográficas ----
-  const block2H = 42;
+  // ---- Bloco 2: legenda ----
+  // Removido o bloco de informações cartográficas e a escala — este mapa é
+  // apenas uma representação de localização para anexar ao orçamento.
+  const block2H = 38;
   pdf.setDrawColor(0, 0, 0).setLineWidth(0.4);
   pdf.rect(PANEL_X, cursorY, PANEL_W, block2H);
   pdf.setFont(FAM, 'bold').setFontSize(9).setTextColor(0, 0, 0);
-  centerText('Informações Cartográficas', PANEL_X + PANEL_W / 2, cursorY + 5);
-  pdf.setFont(FAM, 'normal').setFontSize(7.5);
-  const center = leafletMap.getCenter();
-  const utmZone = utmZoneFromLng(center.lng);
-  const scale = estimateMapScale(leafletMap);
-  const infoLines = [
-    'Projeção UTM',
-    `Zona ${utmZone} — Hemisfério Sul`,
-    'Datum: SIRGAS 2000',
-    `Escala 1:${scale.toLocaleString('pt-BR')}`,
-  ];
-  infoLines.forEach((line, i) => {
-    centerText(line, PANEL_X + PANEL_W / 2, cursorY + 11 + i * 4);
-  });
-  pdf.setFont(FAM, 'bold').setFontSize(7.5);
-  centerText('Escala Gráfica', PANEL_X + PANEL_W / 2, cursorY + 32);
-  drawGraphicScale(pdf, PANEL_X + 5, cursorY + 35, PANEL_W - 10, scale, FAM);
-  cursorY += block2H;
-
-  // ---- Bloco 3: legenda ----
-  const block3H = 50;
-  pdf.setDrawColor(0, 0, 0).setLineWidth(0.4);
-  pdf.rect(PANEL_X, cursorY, PANEL_W, block3H);
-  pdf.setFont(FAM, 'bold').setFontSize(9).setTextColor(0, 0, 0);
   centerText('LEGENDA', PANEL_X + PANEL_W / 2, cursorY + 6);
-  const legend: Array<{ swatch: 'main' | 'neighbor' | 'sigef' | 'sicar'; label: string }> = [
-    { swatch: 'main', label: 'Imóvel em Estudo' },
-    { swatch: 'neighbor', label: 'Confrontantes (SICAR)' },
+  const legend: Array<{ swatch: 'main' | 'sigef' | 'sicar'; label: string }> = [
+    { swatch: 'main', label: 'Imóvel do Cliente' },
     { swatch: 'sigef', label: 'Imóveis Certificados — SIGEF' },
     { swatch: 'sicar', label: 'Imóveis Cadastrados — CAR' },
   ];
   legend.forEach((item, i) => {
-    const y = cursorY + 12 + i * 8.5;
+    const y = cursorY + 12 + i * 8;
     const sx = PANEL_X + 4;
     if (item.swatch === 'main') {
       pdf.setFillColor(120, 200, 130);
       pdf.setDrawColor(40, 130, 60).setLineWidth(0.7);
-      pdf.rect(sx, y, 7, 4.5, 'FD');
-    } else if (item.swatch === 'neighbor') {
-      pdf.setFillColor(220, 60, 60);
-      pdf.setDrawColor(180, 30, 35).setLineWidth(0.4);
       pdf.rect(sx, y, 7, 4.5, 'FD');
     } else if (item.swatch === 'sigef') {
       pdf.setFillColor(180, 30, 35);
@@ -546,7 +519,7 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
     pdf.setFont(FAM, 'normal').setFontSize(7.5).setTextColor(0, 0, 0);
     pdf.text(item.label, sx + 9.5, y + 3.4);
   });
-  cursorY += block3H;
+  cursorY += block2H;
 
   // ---- Bloco 4: assinatura ----
   const block4H = PAGE_H - MARGIN - cursorY;
