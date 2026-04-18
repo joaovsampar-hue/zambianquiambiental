@@ -124,8 +124,20 @@ function geometryToWkt(geom: GeoJSON.Polygon | GeoJSON.MultiPolygon): string {
 }
 
 /**
- * Busca apenas os imóveis que **fazem confronto direto** com a geometria informada
- * (compartilham fronteira — operador espacial TOUCHES). Não usa raio/bbox.
+ * Busca os imóveis vizinhos que **fazem confronto** com a geometria informada.
+ *
+ * Por que não usar só TOUCHES?
+ * Em dados reais do SICAR (digitalização manual + diferentes datums) é comum haver
+ * pequenas folgas (gaps de poucos metros) ou microssobreposições entre polígonos
+ * vizinhos. O operador `TOUCHES` exige que as fronteiras se toquem **e** os
+ * interiores sejam disjuntos — ambos os casos quebram esse requisito e o resultado
+ * vem vazio mesmo havendo confrontantes evidentes.
+ *
+ * Usamos `DWITHIN(geometria, 0.00003 graus)` ≈ ~3 metros no equador. Isso captura
+ * tanto vizinhos que tocam exatamente quanto os que ficam separados por gaps
+ * pequenos típicos do SICAR. A unidade angular é a default do GeoServer quando o
+ * SRS é geográfico (EPSG:4326).
+ *
  * Retorna FeatureCollection pronto pra renderizar no Leaflet.
  */
 export async function fetchTouchingNeighbors(
@@ -135,10 +147,8 @@ export async function fetchTouchingNeighbors(
   maxFeatures = 100,
 ): Promise<GeoJSON.FeatureCollection | null> {
   const wkt = geometryToWkt(geometry);
-  // TOUCHES: fronteiras se tocam mas interiores não se intersectam — confrontantes diretos.
-  // Acrescentamos INTERSECTS como fallback para casos de pequenas sobreposições topológicas
-  // (comuns no SICAR por imprecisão de digitalização).
-  const cql = `(TOUCHES(geo_area_imovel, ${wkt}) OR INTERSECTS(geo_area_imovel, ${wkt})) AND cod_imovel<>'${sanitizeCar(excludeCar)}'`;
+  // ~3m de tolerância — suficiente para gaps de digitalização sem capturar imóveis distantes.
+  const cql = `DWITHIN(geo_area_imovel, ${wkt}, 0.00003, kilometers) AND cod_imovel<>'${sanitizeCar(excludeCar)}'`;
   const params = new URLSearchParams({
     service: 'WFS',
     version: '2.0.0',
@@ -151,7 +161,14 @@ export async function fetchTouchingNeighbors(
   });
   try {
     const resp = await fetch(`${SICAR_WFS}?${params.toString()}`);
-    if (!resp.ok) return null;
+    if (!resp.ok) {
+      // Fallback: alguns servidores SICAR rejeitam a unidade — tenta sem ela.
+      const cql2 = `DWITHIN(geo_area_imovel, ${wkt}, 0.00003, meters) AND cod_imovel<>'${sanitizeCar(excludeCar)}'`;
+      params.set('CQL_FILTER', cql2);
+      const resp2 = await fetch(`${SICAR_WFS}?${params.toString()}`);
+      if (!resp2.ok) return null;
+      return (await resp2.json()) as GeoJSON.FeatureCollection;
+    }
     return (await resp.json()) as GeoJSON.FeatureCollection;
   } catch {
     return null;

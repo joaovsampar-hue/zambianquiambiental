@@ -419,18 +419,18 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
       const neighborId = `sicar-neighbor-${feat.cod_imovel}`;
       const showNeighborBtn = !!onNeighborPick;
       const html = `
-        <div class="text-xs space-y-1.5" style="min-width:220px">
+        <div class="text-xs space-y-1.5" style="min-width:240px">
           <div class="font-semibold">${feat.tipo_imovel || 'Imóvel SICAR'}</div>
           <div><span class="text-muted-foreground">CAR:</span> <span class="font-mono break-all">${feat.cod_imovel}</span></div>
           <div><span class="text-muted-foreground">Área total:</span> ${feat.area.toFixed(2)} ha</div>
           <div><span class="text-muted-foreground">Município:</span> ${feat.municipio}/${feat.uf}</div>
           <div class="flex flex-wrap gap-1.5 pt-1">
             <button id="${loadId}" class="px-2 py-1 rounded bg-primary text-primary-foreground text-xs">Carregar este imóvel</button>
-            ${showNeighborBtn ? `<button id="${neighborId}" class="px-2 py-1 rounded bg-secondary text-secondary-foreground text-xs border border-border">+ Confrontante</button>` : ''}
+            ${showNeighborBtn ? `<button id="${neighborId}" class="px-2 py-1 rounded bg-secondary text-secondary-foreground text-xs border border-border">+ Listar como confrontante</button>` : ''}
           </div>
         </div>`;
       loadingPopup.setContent(html);
-      // Liga o botão depois que o popup é renderizado.
+      // Liga os botões depois que o popup é renderizado.
       setTimeout(() => {
         document.getElementById(loadId)?.addEventListener('click', () => {
           loadingPopup.close();

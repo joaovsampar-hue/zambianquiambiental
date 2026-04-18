@@ -136,6 +136,23 @@ export default function ProcessDetailPage() {
               onChange={(d) => saveGeometry.mutate(d)}
               height="600px"
               carNumber={process.car_number ?? undefined}
+              onNeighborPick={async (info) => {
+                // Inserção rápida na tabela de confrontantes — sem abrir formulário.
+                const { error } = await supabase.from('process_neighbors').insert({
+                  process_id: id!,
+                  created_by: user!.id,
+                  car_number: info.car,
+                  property_denomination: `Imóvel rural — ${info.municipio}/${info.uf} (${info.area.toFixed(2)} ha)`,
+                  phones: [] as any,
+                  positions: [],
+                } as any);
+                if (error) {
+                  toast({ title: 'Erro', description: error.message, variant: 'destructive' });
+                  return;
+                }
+                qc.invalidateQueries({ queryKey: ['neighbors', id] });
+                toast({ title: 'Confrontante listado', description: info.car });
+              }}
             />
           </CardContent></Card>
         </TabsContent>
