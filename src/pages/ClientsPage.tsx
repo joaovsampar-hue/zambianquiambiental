@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { useToast } from '@/hooks/use-toast';
 import { Plus, Search, Users, ChevronRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import DeleteButton from '@/components/DeleteButton';
 
 export default function ClientsPage() {
   const { user } = useAuth();
