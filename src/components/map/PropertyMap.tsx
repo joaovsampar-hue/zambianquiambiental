@@ -211,11 +211,36 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
       overlays[`SICAR — ${uf}`] = wms;
     });
 
-    // ===== OVERLAY SIGEF (parcelas certificadas pelo INCRA) =====
-    // Carregado dinamicamente por BBOX a cada moveend quando ativo. Usa cor
-    // laranja pra distinguir visualmente do SICAR (azul/cinza/verde).
-    sigefLayer.current = L.layerGroup();
-    overlays['SIGEF — Parcelas certificadas (INCRA)'] = sigefLayer.current;
+    // ===== OVERLAYS SIGEF (parcelas certificadas pelo INCRA, via Acervo Fundiário) =====
+    // Tile WMS por UF, servido pela edge function `sigef-incra-proxy` (CORS+HTTPS).
+    // Cor laranja distingue visualmente das camadas SICAR (azul/verde) — o estilo
+    // real do polígono vem do MapServer do INCRA, então aplicamos opacidade só.
+    // GetFeatureInfo on-click traz matrícula/RT/ART e abre num popup customizado.
+    const sigefWmsByUF = new Map<string, L.TileLayer.WMS>();
+    SIGEF_UFS.forEach((uf) => {
+      const wms = L.tileLayer.wms(SIGEF_PROXY_WMS, {
+        layers: sigefLayerForUF(uf),
+        format: 'image/png',
+        transparent: true,
+        version: '1.1.1',
+        uppercase: true,
+        attribution: 'SIGEF/INCRA',
+        opacity: 0.65,
+      } as L.WMSOptions);
+      wms.on('tileerror', () => {
+        const w = wms as L.TileLayer & { __notified?: boolean };
+        if (w.__notified) return;
+        w.__notified = true;
+        toast({
+          title: 'SIGEF/INCRA indisponível',
+          description: 'O acervo fundiário do INCRA está fora do ar. Tente em alguns minutos.',
+          variant: 'destructive',
+        });
+      });
+      overlays[`SIGEF — ${uf}`] = wms;
+      sigefWmsByUF.set(uf, wms);
+    });
+    sigefWmsByUFRef.current = sigefWmsByUF;
 
     L.control
       .layers(bases, overlays, { position: 'topright', collapsed: true })
@@ -223,25 +248,21 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
 
     layerGroup.current = L.layerGroup().addTo(map);
     neighborsLayer.current = L.layerGroup().addTo(map);
+    // Camada de popups dos cliques SIGEF — separada para limpar facilmente.
+    sigefInfoLayer.current = L.layerGroup().addTo(map);
 
-    // Liga/desliga o fetcher dinâmico do SIGEF conforme o usuário marca o overlay.
+    // Rastreia quais camadas SIGEF estão ativas para decidir se vale chamar
+    // GetFeatureInfo no clique (sem nenhuma ativa, é desperdício de request).
     map.on('overlayadd', (e: L.LayersControlEvent) => {
-      if (e.layer === sigefLayer.current) {
-        sigefActive.current = true;
-        setSigefStatus('idle');
-        loadSigefForCurrentBounds();
-      }
+      const uf = (e.name.match(/^SIGEF — ([A-Z]{2})$/)?.[1]) as SigefUF | undefined;
+      if (uf) sigefActiveUFs.current.add(uf);
     });
     map.on('overlayremove', (e: L.LayersControlEvent) => {
-      if (e.layer === sigefLayer.current) {
-        sigefActive.current = false;
-        sigefLayer.current?.clearLayers();
-        setSigefStatus('idle');
-        setSigefCount(0);
+      const uf = (e.name.match(/^SIGEF — ([A-Z]{2})$/)?.[1]) as SigefUF | undefined;
+      if (uf) {
+        sigefActiveUFs.current.delete(uf);
+        sigefInfoLayer.current?.clearLayers();
       }
-    });
-    map.on('moveend', () => {
-      if (sigefActive.current) loadSigefForCurrentBounds();
     });
 
     map.on('click', async (e: L.LeafletMouseEvent) => {
