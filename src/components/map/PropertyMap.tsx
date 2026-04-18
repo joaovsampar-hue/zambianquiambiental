@@ -43,6 +43,13 @@ export interface MapData {
   source: GeometrySource;
 }
 
+export interface RenderedMapFeatures {
+  /** Polígono do imóvel principal (em estudo). null se ainda não carregado. */
+  main: GeoJSON.Feature | null;
+  /** Polígonos dos vizinhos detectados via SICAR (TOUCHES). */
+  neighbors: GeoJSON.FeatureCollection | null;
+}
+
 export interface PropertyMapHandle {
   flyToUF: (uf: string) => void;
   flyTo: (lat: number, lng: number, zoom?: number) => void;
@@ -52,6 +59,10 @@ export interface PropertyMapHandle {
   getMap: () => L.Map | null;
   /** Retorna o container DOM raiz do mapa — usado pra captura de screenshot. */
   getContainer: () => HTMLElement | null;
+  /** Devolve as features atualmente renderizadas — usado pela exportação vetorial. */
+  getRenderedFeatures: () => RenderedMapFeatures;
+  /** Esconde temporariamente camadas WMS (SICAR/SIGEF tiles) — usado durante captura PDF. */
+  setOverlayTilesVisible: (visible: boolean) => void;
 }
 
 interface Props {
