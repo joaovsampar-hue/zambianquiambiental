@@ -88,6 +88,48 @@ export default function ProcessDetailPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['process-geo', id] }),
   });
 
+  // CARs já cadastrados como confrontantes — usado pra evitar duplicatas
+  // no painel de detecção automática.
+  const { data: registeredCars = [] } = useQuery({
+    queryKey: ['neighbors-cars', id],
+    enabled: !!id,
+    queryFn: async () => {
+      const { data } = await supabase.from('process_neighbors')
+        .select('car_number').eq('process_id', id!);
+      return (data ?? []).map(r => r.car_number).filter(Boolean) as string[];
+    },
+  });
+
+  const registeredSet = useMemo(
+    () => new Set(registeredCars.map(c => sanitizeCar(c))),
+    [registeredCars],
+  );
+
+  // Insert em lote dos vizinhos selecionados pelo usuário no painel.
+  const bulkInsertNeighbors = useMutation({
+    mutationFn: async (list: DetectedNeighbor[]) => {
+      const rows = list.map(n => ({
+        process_id: id!,
+        created_by: user!.id,
+        car_number: n.car,
+        property_denomination: `Imóvel rural — ${n.municipio}/${n.uf} (${n.area.toFixed(2)} ha)`,
+        phones: [] as any,
+        positions: [],
+      }));
+      const { error } = await supabase.from('process_neighbors').insert(rows as any);
+      if (error) throw error;
+      return list.length;
+    },
+    onSuccess: (count) => {
+      qc.invalidateQueries({ queryKey: ['neighbors', id] });
+      qc.invalidateQueries({ queryKey: ['neighbors-cars', id] });
+      toast({ title: `${count} confrontante(s) cadastrado(s) em lote` });
+    },
+    onError: (err: any) => {
+      toast({ title: 'Erro no cadastro em lote', description: err.message, variant: 'destructive' });
+    },
+  });
+
   if (isLoading || !process) {
     return <div className="text-muted-foreground">Carregando...</div>;
   }
