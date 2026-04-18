@@ -202,6 +202,44 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Quando há geometria pré-carregada (vinda do banco) + número CAR, busca os
+  // confrontantes diretos automaticamente. Sem isso, o usuário só veria os
+  // vizinhos azuis ao clicar em "Carregar este imóvel" — que normalmente nem
+  // dispara, pois o polígono já vem salvo do processo.
+  useEffect(() => {
+    const data = dataRef.current;
+    if (!data.geojson || !carNumber) return;
+    const uf = parseCarUF(carNumber);
+    if (!uf) return;
+    const geom = (data.geojson as any).geometry ?? data.geojson;
+    if (!geom?.type || (geom.type !== 'Polygon' && geom.type !== 'MultiPolygon')) return;
+    const mainCar = sanitizeCar(carNumber);
+    if (loadedCarsRef.current.has(mainCar)) return;
+    loadedCarsRef.current.add(mainCar);
+    (async () => {
+      try {
+        const neighbors = await fetchTouchingNeighbors(uf, geom, mainCar);
+        if (!neighbors) return;
+        renderNeighbors(neighbors, mainCar);
+        if (onNeighborsDetected) {
+          const list = (neighbors.features ?? [])
+            .map(f => f.properties as any)
+            .filter(p => p?.cod_imovel && p.cod_imovel !== mainCar)
+            .map(p => ({
+              car: String(p.cod_imovel),
+              area: Number(p.area ?? 0),
+              municipio: String(p.municipio ?? ''),
+              uf: String(p.uf ?? uf),
+            }));
+          onNeighborsDetected(list);
+        }
+      } catch {
+        /* ignore neighbor fetch errors */
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [carNumber, initialData?.geojson]);
+
   // Quando o container muda de tamanho (entra/sai de fullscreen), o Leaflet
   // precisa recalcular o tamanho dos tiles, senão fica metade cinza.
   useEffect(() => {
