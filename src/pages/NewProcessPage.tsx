@@ -193,8 +193,9 @@ export default function NewProcessPage() {
                         placeholder="UF-XXXXXXX-XXXXXXXX..."
                         className={!carOk ? 'border-destructive font-mono text-xs' : 'font-mono text-xs'}
                       />
-                      <Button type="button" variant="outline" size="sm" onClick={handleLocateCAR}>
-                        <MapPinned className="w-4 h-4 mr-1.5" /> Localizar
+                      <Button type="button" variant="outline" size="sm" onClick={handleLocateCAR} disabled={locatingCar}>
+                        {locatingCar ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <MapPinned className="w-4 h-4 mr-1.5" />}
+                        Buscar polígono
                       </Button>
                     </div>
                     {!carOk && (
