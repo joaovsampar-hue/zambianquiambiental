@@ -153,31 +153,12 @@ export default function NewProcessPage() {
               <div className="grid lg:grid-cols-2 gap-6">
                 {/* Coluna esquerda — formulário */}
                 <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label>Número do CAR (opcional)</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        value={carNumberRaw}
-                        // Sanitiza em tempo real: remove pontos e força maiúsculas
-                        onChange={e => setCarNumberRaw(e.target.value.replace(/\./g, '').toUpperCase())}
-                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleLocateCAR(); } }}
-                        placeholder="UF-XXXXXXX-XXXXXXXX..."
-                        className={!carOk ? 'border-destructive font-mono text-xs' : 'font-mono text-xs'}
-                      />
-                      <Button type="button" variant="outline" size="sm" onClick={handleLocateCAR} disabled={locatingCar}>
-                        {locatingCar ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <MapPinned className="w-4 h-4 mr-1.5" />}
-                        Buscar polígono
-                      </Button>
+                  {carClean && (
+                    <div className="space-y-1 rounded-md border border-primary/30 bg-primary/5 p-2.5">
+                      <p className="text-xs text-muted-foreground">CAR carregado do mapa</p>
+                      <p className="font-mono text-xs break-all">{carClean}</p>
                     </div>
-                    {!carOk && (
-                      <p className="text-xs text-destructive">
-                        Formato inválido. Aceito com ou sem pontos: UF-7dígitos-32hex.
-                      </p>
-                    )}
-                    <p className="text-xs text-muted-foreground">
-                      Aceita com ou sem pontos. Pressione Enter ou clique em Buscar polígono — o imóvel é carregado direto do SICAR.
-                    </p>
-                  </div>
+                  )}
 
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
