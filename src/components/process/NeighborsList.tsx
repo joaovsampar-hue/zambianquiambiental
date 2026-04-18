@@ -8,12 +8,23 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { useToast } from '@/hooks/use-toast';
 import NeighborForm, { NeighborFormData, emptyNeighbor } from './NeighborForm';
+import PropertyMap from '@/components/map/PropertyMap';
 import { consentLabels, consentColors } from '@/lib/processStages';
-import { Plus, ChevronDown, Trash2, Edit, UserPlus, FileSearch, Loader2, AlertTriangle, Info } from 'lucide-react';
+import { exportNeighborsToExcel } from '@/lib/exportNeighbors';
+import { Plus, ChevronDown, Trash2, Edit, UserPlus, FileSearch, Loader2, AlertTriangle, Info, FileSpreadsheet, MousePointerClick } from 'lucide-react';
 
-interface Props { processId: string; clientId: string; }
+interface Props {
+  processId: string;
+  clientId: string;
+  /** Nome do cliente — usado no cabeçalho do Excel exportado. */
+  clientName?: string;
+  /** Número do processo — incluso no Excel para referência. */
+  processNumber?: string;
+  /** CAR do imóvel principal — habilita o mapa de identificação de confrontantes. */
+  carNumber?: string;
+}
 
-export default function NeighborsList({ processId, clientId: _clientId }: Props) {
+export default function NeighborsList({ processId, clientId: _clientId, clientName, processNumber, carNumber }: Props) {
   const { user } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -179,26 +190,81 @@ export default function NeighborsList({ processId, clientId: _clientId }: Props)
 
   const openNew = () => { setEditingId(null); setForm(emptyNeighbor()); setOpen(true); };
 
+  /** Pré-preenche o formulário de confrontante com dados de um imóvel SICAR clicado no mapa. */
+  const openFromMap = (info: { car: string; area: number; municipio: string; uf: string }) => {
+    setEditingId(null);
+    setForm({
+      ...emptyNeighbor(),
+      neighbor_type: 'pf',
+      car_number: info.car,
+      property_denomination: `Imóvel rural — ${info.municipio}/${info.uf} (${info.area.toFixed(2)} ha)`,
+    });
+    setOpen(true);
+  };
+
+  const handleExport = () => {
+    if (!neighbors.length) {
+      toast({ title: 'Nada a exportar', description: 'Cadastre confrontantes primeiro.' });
+      return;
+    }
+    exportNeighborsToExcel({
+      clientName: clientName ?? 'Cliente',
+      processNumber,
+      neighbors: neighbors as any,
+    });
+    toast({ title: 'Planilha gerada', description: 'O download foi iniciado.' });
+  };
+
+  const [showMap, setShowMap] = useState(false);
+
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">{neighbors.length} confrontante(s) cadastrado(s)</p>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button size="sm" onClick={openNew}><Plus className="w-4 h-4 mr-1.5" />Adicionar</Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>{editingId ? 'Editar confrontante' : 'Novo confrontante'}</DialogTitle>
-            </DialogHeader>
-            <NeighborForm data={form} onChange={setForm} />
-            <div className="flex justify-end gap-2 pt-3 border-t border-border">
-              <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
-              <Button onClick={() => save.mutate()} disabled={save.isPending}>Salvar</Button>
-            </div>
-          </DialogContent>
-        </Dialog>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={handleExport} disabled={!neighbors.length}>
+            <FileSpreadsheet className="w-4 h-4 mr-1.5" />Exportar Excel
+          </Button>
+          {carNumber && (
+            <Button size="sm" variant="outline" onClick={() => setShowMap(s => !s)}>
+              <MousePointerClick className="w-4 h-4 mr-1.5" />
+              {showMap ? 'Fechar mapa' : 'Adicionar pelo mapa'}
+            </Button>
+          )}
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+              <Button size="sm" onClick={openNew}><Plus className="w-4 h-4 mr-1.5" />Adicionar</Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>{editingId ? 'Editar confrontante' : 'Novo confrontante'}</DialogTitle>
+              </DialogHeader>
+              <NeighborForm data={form} onChange={setForm} />
+              <div className="flex justify-end gap-2 pt-3 border-t border-border">
+                <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
+                <Button onClick={() => save.mutate()} disabled={save.isPending}>Salvar</Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
+
+      {showMap && carNumber && (
+        <Card>
+          <CardContent className="p-3 space-y-2">
+            <p className="text-xs text-muted-foreground">
+              Clique sobre um imóvel vizinho no mapa e use <strong>+ Confrontante</strong> no popup para abrir o formulário pré-preenchido com o CAR.
+            </p>
+            <PropertyMap
+              initialData={{}}
+              onChange={() => { /* leitura apenas — mudanças aqui não persistem */ }}
+              carNumber={carNumber}
+              height="420px"
+              onNeighborPick={openFromMap}
+            />
+          </CardContent>
+        </Card>
+      )}
 
       {neighbors.length === 0 ? (
         <div className="text-center py-8 text-sm text-muted-foreground border border-dashed border-border rounded-lg">
