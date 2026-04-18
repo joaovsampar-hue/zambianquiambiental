@@ -81,6 +81,11 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
   const mapInstance = useRef<L.Map | null>(null);
   const layerGroup = useRef<L.LayerGroup | null>(null);
   const neighborsLayer = useRef<L.LayerGroup | null>(null);
+  // Camada SIGEF — parcelas certificadas pelo INCRA. Carregada por BBOX só quando
+  // o usuário ativa o overlay (via controle do Leaflet) E o zoom está ≥ 12.
+  const sigefLayer = useRef<L.LayerGroup | null>(null);
+  const sigefActive = useRef<boolean>(false);
+  const sigefFetchToken = useRef<number>(0);
   const [coords, setCoords] = useState(initialData?.coordinates_text ?? '');
   const [carInput, setCarInput] = useState(carNumber ?? '');
   const [loadingCar, setLoadingCar] = useState(false);
@@ -90,6 +95,9 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
   // Status da consulta de confrontantes ao SICAR — alimenta o badge de status.
   const [neighborStatus, setNeighborStatus] = useState<'idle' | 'loading' | 'done' | 'empty' | 'error'>('idle');
   const [neighborCount, setNeighborCount] = useState(0);
+  // Status da camada SIGEF — alimenta um badge separado quando ativa.
+  const [sigefStatus, setSigefStatus] = useState<'idle' | 'zoomout' | 'loading' | 'done' | 'empty' | 'error'>('idle');
+  const [sigefCount, setSigefCount] = useState(0);
   const dataRef = useRef<MapData>({
     geojson: initialData?.geojson ?? null,
     reference_lat: initialData?.reference_lat ?? null,
