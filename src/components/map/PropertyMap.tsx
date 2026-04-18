@@ -54,6 +54,8 @@ interface Props {
   readOnly?: boolean;
   /** Quando informado, o usuário pode buscar o polígono SICAR pelo CAR vinculado ao processo. */
   carNumber?: string;
+  /** Disparado quando o usuário busca um CAR válido pela aba CAR e o polígono é carregado com sucesso. */
+  onCarLoaded?: (car: string) => void;
 }
 
 const BASE_LAYER_KEY = 'geodoc.map.baseLayer';
