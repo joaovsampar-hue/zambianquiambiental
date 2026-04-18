@@ -308,6 +308,15 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     }
   };
 
+  // Reaplica estilo dos polígonos vizinhos quando o conjunto de selecionados muda.
+  // Sem isso, a borda azul não destaca os polígonos marcados/desmarcados via popup.
+  useEffect(() => {
+    neighborLayersRef.current.forEach((layer, car) => {
+      layer.setStyle(styleForNeighbor(car));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedNeighbors]);
+
   // Estilo aplicado a um polígono vizinho conforme estado de seleção atual.
   // Selecionado = preenchimento mais forte + borda mais grossa, dando feedback
   // visual de "este vai entrar no cadastro em lote".
