@@ -372,21 +372,28 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
         // Re-renderiza o conteúdo do popup a cada abertura — o estado de
         // seleção muda dinamicamente e o label do botão precisa refletir isso.
         const buildHtml = () => {
+          const isRegistered = registeredNeighborsRef.current.has(sanitized);
           const isSelected = selectedNeighborsRef.current.has(sanitized);
           const toggleLabel = isSelected ? '☑ Desmarcar do painel' : '☐ Marcar no painel';
           const toggleClass = isSelected
             ? 'bg-primary text-primary-foreground'
             : 'bg-secondary text-secondary-foreground border border-border';
+          const headerLabel = isRegistered
+            ? '<span class="font-semibold text-success">✓ Confrontante já cadastrado</span>'
+            : '<span class="font-semibold">Imóvel vizinho (SICAR)</span>';
+          const actionsHtml = isRegistered
+            ? '<div class="text-[11px] text-muted-foreground italic">Este imóvel já consta na lista de confrontantes.</div>'
+            : `<div class="flex flex-wrap gap-1.5 pt-1">
+                ${showToggleBtn ? `<button id="${toggleBtnId}" class="px-2 py-1 rounded ${toggleClass} text-xs">${toggleLabel}</button>` : ''}
+                ${showAddBtn ? `<button id="${addBtnId}" class="px-2 py-1 rounded bg-secondary text-secondary-foreground text-xs border border-border">+ Listar como confrontante</button>` : ''}
+              </div>`;
           return `
             <div class="text-xs space-y-1.5" style="min-width:240px">
-              <div class="font-semibold">Imóvel vizinho (SICAR)</div>
+              <div>${headerLabel}</div>
               <div><span class="text-muted-foreground">CAR:</span> <span class="font-mono break-all">${car}</span></div>
               <div><span class="text-muted-foreground">Área total:</span> ${area.toFixed(2)} ha</div>
               <div><span class="text-muted-foreground">Município:</span> ${municipio}${uf ? '/' + uf : ''}</div>
-              <div class="flex flex-wrap gap-1.5 pt-1">
-                ${showToggleBtn ? `<button id="${toggleBtnId}" class="px-2 py-1 rounded ${toggleClass} text-xs">${toggleLabel}</button>` : ''}
-                ${showAddBtn ? `<button id="${addBtnId}" class="px-2 py-1 rounded bg-secondary text-secondary-foreground text-xs border border-border">+ Listar como confrontante</button>` : ''}
-              </div>
+              ${actionsHtml}
             </div>`;
         };
 
