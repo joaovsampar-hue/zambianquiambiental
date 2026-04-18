@@ -11,8 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useToast } from '@/hooks/use-toast';
 import Breadcrumb from '@/components/Breadcrumb';
 import PropertyMap, { MapData, PropertyMapHandle } from '@/components/map/PropertyMap';
-import { SERVICE_TYPES, isValidCAR, sanitizeCAR, carUF } from '@/lib/processStages';
-import { ArrowRight, ArrowLeft, Check, Loader2, MapPinned, UserPlus } from 'lucide-react';
+import { SERVICE_TYPES } from '@/lib/processStages';
+import { ArrowRight, ArrowLeft, Check, Loader2, UserPlus } from 'lucide-react';
 
 export default function NewProcessPage() {
   const { user } = useAuth();
@@ -22,7 +22,8 @@ export default function NewProcessPage() {
   const mapHandleRef = useRef<PropertyMapHandle>(null);
 
   const [step, setStep] = useState(1);
-  const [carNumberRaw, setCarNumberRaw] = useState(''); // como digitado (com pontos OK)
+  // CAR é capturado quando o usuário busca o polígono pela aba CAR do mapa.
+  const [carClean, setCarClean] = useState('');
   const [clientId, setClientId] = useState('');
   const [propertyId, setPropertyId] = useState('');
   const [serviceType, setServiceType] = useState('georreferenciamento');
@@ -35,10 +36,6 @@ export default function NewProcessPage() {
   // Cadastro inline de cliente novo
   const [showNewClient, setShowNewClient] = useState(false);
   const [newClient, setNewClient] = useState({ name: '', cpf_cnpj: '', phone: '', email: '' });
-
-  // CAR sanitizado (sem pontos) — usado para validação e persistência
-  const carClean = sanitizeCAR(carNumberRaw);
-  const carOk = !carClean || isValidCAR(carClean);
 
   const { data: clients } = useQuery({
     queryKey: ['clients-list'],
@@ -123,33 +120,7 @@ export default function NewProcessPage() {
     onError: (e: any) => toast({ title: 'Erro', description: e.message, variant: 'destructive' }),
   });
 
-  const [locatingCar, setLocatingCar] = useState(false);
-  const handleLocateCAR = async () => {
-    if (!carClean) {
-      toast({ title: 'Digite o número do CAR primeiro', variant: 'destructive' });
-      return;
-    }
-    if (!isValidCAR(carClean)) {
-      toast({ title: 'CAR inválido', description: 'Verifique o formato', variant: 'destructive' });
-      return;
-    }
-    if (!mapHandleRef.current) return;
-    // Centraliza na UF imediatamente (feedback rápido) e dispara busca WFS no SICAR.
-    const uf = carUF(carClean);
-    if (uf) mapHandleRef.current.flyToUF(uf);
-    setLocatingCar(true);
-    try {
-      const ok = await mapHandleRef.current.loadCarPolygon(carClean);
-      if (!ok) {
-        // Toast de erro já é exibido pelo PropertyMap.loadCar; aqui só logamos contexto.
-        return;
-      }
-    } finally {
-      setLocatingCar(false);
-    }
-  };
-
-  const canStep2 = !!clientId && carOk;
+  const canStep2 = !!clientId;
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 animate-fade-in">
@@ -182,31 +153,12 @@ export default function NewProcessPage() {
               <div className="grid lg:grid-cols-2 gap-6">
                 {/* Coluna esquerda — formulário */}
                 <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label>Número do CAR (opcional)</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        value={carNumberRaw}
-                        // Sanitiza em tempo real: remove pontos e força maiúsculas
-                        onChange={e => setCarNumberRaw(e.target.value.replace(/\./g, '').toUpperCase())}
-                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleLocateCAR(); } }}
-                        placeholder="UF-XXXXXXX-XXXXXXXX..."
-                        className={!carOk ? 'border-destructive font-mono text-xs' : 'font-mono text-xs'}
-                      />
-                      <Button type="button" variant="outline" size="sm" onClick={handleLocateCAR} disabled={locatingCar}>
-                        {locatingCar ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <MapPinned className="w-4 h-4 mr-1.5" />}
-                        Buscar polígono
-                      </Button>
+                  {carClean && (
+                    <div className="space-y-1 rounded-md border border-primary/30 bg-primary/5 p-2.5">
+                      <p className="text-xs text-muted-foreground">CAR carregado do mapa</p>
+                      <p className="font-mono text-xs break-all">{carClean}</p>
                     </div>
-                    {!carOk && (
-                      <p className="text-xs text-destructive">
-                        Formato inválido. Aceito com ou sem pontos: UF-7dígitos-32hex.
-                      </p>
-                    )}
-                    <p className="text-xs text-muted-foreground">
-                      Aceita com ou sem pontos. Pressione Enter ou clique em Buscar polígono — o imóvel é carregado direto do SICAR.
-                    </p>
-                  </div>
+                  )}
 
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
@@ -298,12 +250,13 @@ export default function NewProcessPage() {
                 {/* Coluna direita — mapa */}
                 <div className="space-y-2">
                   <Label className="text-xs text-muted-foreground">
-                    Localize visualmente o imóvel — ative a camada CAR no painel do mapa
+                    Use a aba <strong>CAR</strong> abaixo do mapa para buscar o imóvel pelo número — o polígono é carregado direto do SICAR e o CAR fica vinculado ao processo.
                   </Label>
                   <PropertyMap
                     ref={mapHandleRef}
                     initialData={mapData}
                     onChange={setMapData}
+                    onCarLoaded={(car) => setCarClean(car)}
                     height="500px"
                   />
                 </div>

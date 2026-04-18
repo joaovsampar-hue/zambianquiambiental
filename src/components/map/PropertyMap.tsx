@@ -54,12 +54,14 @@ interface Props {
   readOnly?: boolean;
   /** Quando informado, o usuário pode buscar o polígono SICAR pelo CAR vinculado ao processo. */
   carNumber?: string;
+  /** Disparado quando o usuário busca um CAR válido pela aba CAR e o polígono é carregado com sucesso. */
+  onCarLoaded?: (car: string) => void;
 }
 
 const BASE_LAYER_KEY = 'geodoc.map.baseLayer';
 
 const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
-  { initialData, onChange, height = '500px', readOnly, carNumber },
+  { initialData, onChange, height = '500px', readOnly, carNumber, onCarLoaded },
   ref,
 ) {
   const mapRef = useRef<HTMLDivElement>(null);
@@ -278,6 +280,7 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
       };
       update({ geojson: feat, source: 'sicar' });
       renderGeometry(dataRef.current);
+      onCarLoaded?.(result.feature.cod_imovel);
 
       // Buscar vizinhos (não-bloqueante, ignora erro)
       try {
