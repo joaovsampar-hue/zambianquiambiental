@@ -356,6 +356,9 @@ export async function exportProcessMap(opts: ExportMapOptions): Promise<void> {
   } finally {
     controlsToHide.forEach((el, i) => { el.style.display = prevDisplays[i]; });
     setOverlayTilesVisible?.(true);
+    if (prevView) {
+      try { leafletMap.setView(prevView.center, prevView.zoom, { animate: false }); } catch { /* ignore */ }
+    }
   }
 
   // ===== PDF A4 paisagem =====
