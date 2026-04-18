@@ -70,6 +70,33 @@ async function urlToDataUrl(url: string): Promise<string | null> {
   }
 }
 
+// Recorta um dataURL PNG para uma sub-região (em px do DOM) — preserva o
+// aspect ratio do slot do PDF sem distorcer. `pixelRatio` precisa bater com o
+// usado em toPng() (estamos usando 2).
+async function cropPngToAspect(
+  pngDataUrl: string,
+  srcXdom: number, srcYdom: number, srcWdom: number, srcHdom: number,
+  pixelRatio: number,
+): Promise<string> {
+  const img = await new Promise<HTMLImageElement>((res, rej) => {
+    const im = new Image();
+    im.onload = () => res(im);
+    im.onerror = rej;
+    im.src = pngDataUrl;
+  });
+  const sx = Math.round(srcXdom * pixelRatio);
+  const sy = Math.round(srcYdom * pixelRatio);
+  const sw = Math.round(srcWdom * pixelRatio);
+  const sh = Math.round(srcHdom * pixelRatio);
+  const canvas = document.createElement('canvas');
+  canvas.width = sw;
+  canvas.height = sh;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return pngDataUrl;
+  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+  return canvas.toDataURL('image/png');
+}
+
 // ===== Projeção lat/lng → coordenadas no PDF =====
 // Como o PNG do basemap é RECORTADO para o aspect ratio do slot do PDF (sem
 // distorcer), o projetor precisa usar o MESMO recorte: pega o ponto na imagem
