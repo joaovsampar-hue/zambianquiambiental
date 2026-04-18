@@ -672,29 +672,48 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     }
 
     setIdentifying(true);
-    const loadingPopup = L.popup({ closeButton: false, autoClose: false })
+    const loadingPopup = L.popup({ closeButton: false, autoClose: false, maxWidth: 340 })
       .setLatLng([lat, lng])
       .setContent('<div class="text-xs">Consultando SICAR…</div>')
       .openOn(map);
 
+    // SIGEF roda em paralelo — quando o popup do CAR estiver pronto,
+    // anexamos o bloco SIGEF embaixo (ou nada, se não houver certificação).
+    const sigefPromise = identifySigefAtPoint(lat, lng);
+
     try {
       const feat = await fetchFeatureAtPoint(uf, lat, lng);
+      const sigefHtml = await sigefPromise;
+
       if (!feat) {
-        loadingPopup.setContent(
-          '<div class="text-xs">Nenhum imóvel SICAR neste ponto.</div>',
-        );
+        // Sem CAR no ponto, mas pode haver SIGEF certificado — mostra só ele.
+        if (sigefHtml) {
+          loadingPopup.setContent(
+            `<div class="text-xs space-y-1.5" style="min-width:260px">
+               <div class="text-muted-foreground italic">Nenhum imóvel SICAR neste ponto.</div>
+               ${sigefHtml}
+             </div>`,
+          );
+          // Mostra o botão de fechar agora que o conteúdo está estável.
+          (loadingPopup.options as any).closeButton = true;
+        } else {
+          loadingPopup.setContent(
+            '<div class="text-xs">Nenhum imóvel SICAR ou SIGEF neste ponto.</div>',
+          );
+        }
         return;
       }
       const loadId = `sicar-load-${feat.cod_imovel}`;
       const neighborId = `sicar-neighbor-${feat.cod_imovel}`;
       const showNeighborBtn = !!onNeighborPick;
       const html = `
-        <div class="text-xs space-y-1.5" style="min-width:240px">
+        <div class="text-xs space-y-1.5" style="min-width:260px">
           <div class="font-semibold">${feat.tipo_imovel || 'Imóvel SICAR'}</div>
           <div><span class="text-muted-foreground">CAR:</span> <span class="font-mono break-all">${feat.cod_imovel}</span></div>
           <div><span class="text-muted-foreground">Área total:</span> ${feat.area.toFixed(2)} ha</div>
           <div><span class="text-muted-foreground">Município:</span> ${feat.municipio}/${feat.uf}</div>
-          <div class="flex flex-wrap gap-1.5 pt-1">
+          ${sigefHtml ?? '<div class="pt-1 text-[11px] text-muted-foreground italic">Sem certificação SIGEF neste ponto.</div>'}
+          <div class="flex flex-wrap gap-1.5 pt-2">
             <button id="${loadId}" class="px-2 py-1 rounded bg-primary text-primary-foreground text-xs">Carregar este imóvel</button>
             ${showNeighborBtn ? `<button id="${neighborId}" class="px-2 py-1 rounded bg-secondary text-secondary-foreground text-xs border border-border">+ Listar como confrontante</button>` : ''}
           </div>
