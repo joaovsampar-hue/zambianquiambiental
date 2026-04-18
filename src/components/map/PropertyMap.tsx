@@ -22,7 +22,7 @@ import {
   sanitizeCar,
   type SicarUF,
 } from '@/lib/sicar';
-import { fetchSigefByBBox, parseSigefProperties } from '@/lib/sigef';
+import { SIGEF_PROXY_WMS, SIGEF_UFS, sigefLayerForUF, parseSigefInfoHtml, type SigefUF } from '@/lib/sigefIncra';
 
 // Fix default Leaflet marker icons in bundler
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -81,11 +81,13 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
   const mapInstance = useRef<L.Map | null>(null);
   const layerGroup = useRef<L.LayerGroup | null>(null);
   const neighborsLayer = useRef<L.LayerGroup | null>(null);
-  // Camada SIGEF — parcelas certificadas pelo INCRA. Carregada por BBOX só quando
-  // o usuário ativa o overlay (via controle do Leaflet) E o zoom está ≥ 12.
-  const sigefLayer = useRef<L.LayerGroup | null>(null);
-  const sigefActive = useRef<boolean>(false);
-  const sigefFetchToken = useRef<number>(0);
+  // Camadas SIGEF — uma WMS por UF (servidas pelo proxy sigef-incra-proxy).
+  // O usuário ativa/desativa via controle de camadas; rastreamos quais UFs
+  // estão ligadas para decidir se o clique deve consultar GetFeatureInfo.
+  const sigefWmsByUFRef = useRef<Map<string, L.TileLayer.WMS> | null>(null);
+  const sigefActiveUFs = useRef<Set<SigefUF>>(new Set());
+  const sigefInfoLayer = useRef<L.LayerGroup | null>(null);
+  const sigefIdentifyToken = useRef<number>(0);
   const [coords, setCoords] = useState(initialData?.coordinates_text ?? '');
   const [carInput, setCarInput] = useState(carNumber ?? '');
   const [loadingCar, setLoadingCar] = useState(false);
@@ -96,8 +98,7 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
   const [neighborStatus, setNeighborStatus] = useState<'idle' | 'loading' | 'done' | 'empty' | 'error'>('idle');
   const [neighborCount, setNeighborCount] = useState(0);
   // Status da camada SIGEF — alimenta um badge separado quando ativa.
-  const [sigefStatus, setSigefStatus] = useState<'idle' | 'zoomout' | 'loading' | 'done' | 'empty' | 'error'>('idle');
-  const [sigefCount, setSigefCount] = useState(0);
+  // (sigefStatus removido — SIGEF agora é tile WMS, não há fetch dinâmico para reportar.)
   const dataRef = useRef<MapData>({
     geojson: initialData?.geojson ?? null,
     reference_lat: initialData?.reference_lat ?? null,
@@ -211,11 +212,36 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
       overlays[`SICAR — ${uf}`] = wms;
     });
 
-    // ===== OVERLAY SIGEF (parcelas certificadas pelo INCRA) =====
-    // Carregado dinamicamente por BBOX a cada moveend quando ativo. Usa cor
-    // laranja pra distinguir visualmente do SICAR (azul/cinza/verde).
-    sigefLayer.current = L.layerGroup();
-    overlays['SIGEF — Parcelas certificadas (INCRA)'] = sigefLayer.current;
+    // ===== OVERLAYS SIGEF (parcelas certificadas pelo INCRA, via Acervo Fundiário) =====
+    // Tile WMS por UF, servido pela edge function `sigef-incra-proxy` (CORS+HTTPS).
+    // Cor laranja distingue visualmente das camadas SICAR (azul/verde) — o estilo
+    // real do polígono vem do MapServer do INCRA, então aplicamos opacidade só.
+    // GetFeatureInfo on-click traz matrícula/RT/ART e abre num popup customizado.
+    const sigefWmsByUF = new Map<string, L.TileLayer.WMS>();
+    SIGEF_UFS.forEach((uf) => {
+      const wms = L.tileLayer.wms(SIGEF_PROXY_WMS, {
+        layers: sigefLayerForUF(uf),
+        format: 'image/png',
+        transparent: true,
+        version: '1.1.1',
+        uppercase: true,
+        attribution: 'SIGEF/INCRA',
+        opacity: 0.65,
+      } as L.WMSOptions);
+      wms.on('tileerror', () => {
+        const w = wms as L.TileLayer & { __notified?: boolean };
+        if (w.__notified) return;
+        w.__notified = true;
+        toast({
+          title: 'SIGEF/INCRA indisponível',
+          description: 'O acervo fundiário do INCRA está fora do ar. Tente em alguns minutos.',
+          variant: 'destructive',
+        });
+      });
+      overlays[`SIGEF — ${uf}`] = wms;
+      sigefWmsByUF.set(uf, wms);
+    });
+    sigefWmsByUFRef.current = sigefWmsByUF;
 
     L.control
       .layers(bases, overlays, { position: 'topright', collapsed: true })
@@ -223,29 +249,27 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
 
     layerGroup.current = L.layerGroup().addTo(map);
     neighborsLayer.current = L.layerGroup().addTo(map);
+    // Camada de popups dos cliques SIGEF — separada para limpar facilmente.
+    sigefInfoLayer.current = L.layerGroup().addTo(map);
 
-    // Liga/desliga o fetcher dinâmico do SIGEF conforme o usuário marca o overlay.
+    // Rastreia quais camadas SIGEF estão ativas para decidir se vale chamar
+    // GetFeatureInfo no clique (sem nenhuma ativa, é desperdício de request).
     map.on('overlayadd', (e: L.LayersControlEvent) => {
-      if (e.layer === sigefLayer.current) {
-        sigefActive.current = true;
-        setSigefStatus('idle');
-        loadSigefForCurrentBounds();
-      }
+      const uf = (e.name.match(/^SIGEF — ([A-Z]{2})$/)?.[1]) as SigefUF | undefined;
+      if (uf) sigefActiveUFs.current.add(uf);
     });
     map.on('overlayremove', (e: L.LayersControlEvent) => {
-      if (e.layer === sigefLayer.current) {
-        sigefActive.current = false;
-        sigefLayer.current?.clearLayers();
-        setSigefStatus('idle');
-        setSigefCount(0);
+      const uf = (e.name.match(/^SIGEF — ([A-Z]{2})$/)?.[1]) as SigefUF | undefined;
+      if (uf) {
+        sigefActiveUFs.current.delete(uf);
+        sigefInfoLayer.current?.clearLayers();
       }
-    });
-    map.on('moveend', () => {
-      if (sigefActive.current) loadSigefForCurrentBounds();
     });
 
     map.on('click', async (e: L.LeafletMouseEvent) => {
       setClickedCoord({ lat: e.latlng.lat, lng: e.latlng.lng });
+      // Identifica em paralelo no SICAR (CAR) e nas UFs SIGEF ativas. Não bloqueia.
+      void identifySigefAtPoint(e.latlng.lat, e.latlng.lng);
       await identifyRef.current(e.latlng.lat, e.latlng.lng);
     });
 
@@ -330,58 +354,75 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     onChange(dataRef.current);
   };
 
-  // Carrega parcelas SIGEF dentro do BBOX visível atual. Só roda em zoom ≥ 12 —
-  // abaixo disso a query devolveria milhares de features e travaria o mapa.
-  // Cada chamada incrementa um token; respostas tardias de chamadas antigas são
-  // descartadas (evita race quando o usuário arrasta rápido).
-  const loadSigefForCurrentBounds = async () => {
+  // Identifica a parcela SIGEF no ponto clicado, via WMS GetFeatureInfo no proxy.
+  // Roda em paralelo para todas as UFs SIGEF que o usuário deixou ativas — na
+  // prática só 1 ou 2 estão ligadas, então o custo é baixo. A primeira UF que
+  // retornar uma feature válida ganha; as demais são descartadas.
+  const identifySigefAtPoint = async (lat: number, lng: number) => {
     const map = mapInstance.current;
-    const lg = sigefLayer.current;
-    if (!map || !lg) return;
-    if (map.getZoom() < 12) {
-      lg.clearLayers();
-      setSigefStatus('zoomout');
-      setSigefCount(0);
-      return;
-    }
-    const b = map.getBounds();
-    const token = ++sigefFetchToken.current;
-    setSigefStatus('loading');
-    const fc = await fetchSigefByBBox(b.getWest(), b.getSouth(), b.getEast(), b.getNorth(), 200);
-    // Resposta antiga? descarta.
-    if (token !== sigefFetchToken.current) return;
-    if (!fc) {
-      setSigefStatus('error');
-      return;
-    }
+    const lg = sigefInfoLayer.current;
+    if (!map || !lg || sigefActiveUFs.current.size === 0) return;
+    const token = ++sigefIdentifyToken.current;
+
+    // Monta um BBOX 1×1 pixel ao redor do ponto — o GetFeatureInfo precisa de
+    // um BBOX coerente com WIDTH/HEIGHT/X/Y para o MapServer interpretar.
+    const point = map.latLngToContainerPoint([lat, lng]);
+    const sw = map.containerPointToLatLng([point.x - 1, point.y + 1]);
+    const ne = map.containerPointToLatLng([point.x + 1, point.y - 1]);
+    const bbox = `${sw.lng},${sw.lat},${ne.lng},${ne.lat}`;
+
+    const tryUF = async (uf: SigefUF): Promise<{ uf: SigefUF; html: string } | null> => {
+      const params = new URLSearchParams({
+        SERVICE: 'WMS',
+        VERSION: '1.1.1',
+        REQUEST: 'GetFeatureInfo',
+        LAYERS: sigefLayerForUF(uf),
+        QUERY_LAYERS: sigefLayerForUF(uf),
+        SRS: 'EPSG:4326',
+        BBOX: bbox,
+        WIDTH: '3',
+        HEIGHT: '3',
+        X: '1',
+        Y: '1',
+        INFO_FORMAT: 'text/html',
+        FEATURE_COUNT: '1',
+      });
+      try {
+        const resp = await fetch(`${SIGEF_PROXY_WMS}?${params.toString()}`);
+        if (!resp.ok) return null;
+        const html = await resp.text();
+        return parseSigefInfoHtml(html) ? { uf, html } : null;
+      } catch {
+        return null;
+      }
+    };
+
+    const results = await Promise.all([...sigefActiveUFs.current].map(tryUF));
+    if (token !== sigefIdentifyToken.current) return; // stale
+    const hit = results.find(r => r !== null) as { uf: SigefUF; html: string } | undefined;
+    if (!hit) return;
+
+    const info = parseSigefInfoHtml(hit.html);
+    if (!info) return;
+
     lg.clearLayers();
-    const features = fc.features ?? [];
-    L.geoJSON(fc, {
-      style: {
-        color: 'hsl(28,90%,45%)',
-        weight: 1.5,
-        fillColor: 'hsl(28,90%,55%)',
-        fillOpacity: 0.18,
-      },
-      onEachFeature: (feat, layer) => {
-        const p = parseSigefProperties((feat.properties ?? {}) as Record<string, unknown>);
-        const html = `
-          <div class="text-xs space-y-1.5" style="min-width:240px">
-            <div class="font-semibold" style="color:hsl(28,90%,40%)">Parcela SIGEF (INCRA)</div>
-            <div><span class="text-muted-foreground">Nome:</span> ${p.nome_area || '—'}</div>
-            <div><span class="text-muted-foreground">Situação:</span> ${p.situacao || '—'}</div>
-            ${p.matricula ? `<div><span class="text-muted-foreground">Matrícula:</span> ${p.matricula}</div>` : ''}
-            ${p.codigo_imovel ? `<div><span class="text-muted-foreground">Cód. imóvel:</span> <span class="font-mono">${p.codigo_imovel}</span></div>` : ''}
-            ${p.responsavel_tecnico ? `<div><span class="text-muted-foreground">Resp. técnico:</span> ${p.responsavel_tecnico}</div>` : ''}
-            ${p.numero_art ? `<div><span class="text-muted-foreground">ART:</span> ${p.numero_art}</div>` : ''}
-            <div><span class="text-muted-foreground">Município:</span> ${p.municipio}${p.uf ? '/' + p.uf : ''}</div>
-            <div class="pt-1 text-[11px] text-muted-foreground italic">Cód. parcela: ${p.codigo_parcela}</div>
-          </div>`;
-        layer.bindPopup(html);
-      },
-    }).addTo(lg);
-    setSigefCount(features.length);
-    setSigefStatus(features.length > 0 ? 'done' : 'empty');
+    const html = `
+      <div class="text-xs space-y-1.5" style="min-width:260px">
+        <div class="font-semibold" style="color:hsl(28,90%,40%)">Parcela SIGEF (INCRA) — ${hit.uf}</div>
+        ${info.nome_area ? `<div><span class="text-muted-foreground">Nome:</span> ${info.nome_area}</div>` : ''}
+        ${info.situacao ? `<div><span class="text-muted-foreground">Situação:</span> ${info.situacao}</div>` : ''}
+        ${info.status ? `<div><span class="text-muted-foreground">Status:</span> ${info.status}</div>` : ''}
+        ${info.matricula ? `<div><span class="text-muted-foreground">Matrícula:</span> ${info.matricula}</div>` : ''}
+        ${info.codigo_imovel ? `<div><span class="text-muted-foreground">Cód. imóvel:</span> <span class="font-mono">${info.codigo_imovel}</span></div>` : ''}
+        ${info.rt ? `<div><span class="text-muted-foreground">Resp. técnico:</span> ${info.rt}</div>` : ''}
+        ${info.art ? `<div><span class="text-muted-foreground">ART:</span> ${info.art}</div>` : ''}
+        ${info.data_aprovacao ? `<div><span class="text-muted-foreground">Aprovação:</span> ${info.data_aprovacao}</div>` : ''}
+        ${info.parcela_codigo ? `<div class="pt-1 text-[11px] text-muted-foreground italic">Cód. parcela: ${info.parcela_codigo}</div>` : ''}
+      </div>`;
+    L.popup({ closeButton: true, autoPan: true })
+      .setLatLng([lat, lng])
+      .setContent(html)
+      .openOn(map);
   };
 
   const renderGeometry = (d: MapData) => {
@@ -819,39 +860,7 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
               )}
             </>
           )}
-          {sigefStatus !== 'idle' && (
-            <>
-              {sigefStatus === 'loading' && (
-                <Badge className="shadow-md gap-1.5" style={{ backgroundColor: 'hsl(28,90%,95%)', color: 'hsl(28,90%,30%)', borderColor: 'hsl(28,90%,75%)' }}>
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                  Carregando parcelas SIGEF…
-                </Badge>
-              )}
-              {sigefStatus === 'done' && (
-                <Badge className="shadow-md" style={{ backgroundColor: 'hsl(28,90%,95%)', color: 'hsl(28,90%,30%)', borderColor: 'hsl(28,90%,75%)' }}>
-                  SIGEF: {sigefCount} parcela{sigefCount === 1 ? '' : 's'} visível{sigefCount === 1 ? '' : 'is'}
-                </Badge>
-              )}
-              {sigefStatus === 'empty' && (
-                <Badge
-                  className="bg-muted text-muted-foreground border-border shadow-md cursor-help"
-                  title="A camada pública do INCRA no ArcGIS Online cobre apenas parcelas dentro de buffers de 5 km ao redor de áreas indígenas, quilombolas e assentamentos. Regiões agrícolas comuns ficam fora desta cobertura. O dataset SIGEF nacional completo só está disponível mediante login gov.br em certificacao.incra.gov.br."
-                >
-                  SIGEF: sem parcelas na cobertura pública (?)
-                </Badge>
-              )}
-              {sigefStatus === 'zoomout' && (
-                <Badge className="bg-muted text-muted-foreground border-border shadow-md">
-                  SIGEF: aproxime o zoom (≥ 12) para ver parcelas
-                </Badge>
-              )}
-              {sigefStatus === 'error' && (
-                <Badge className="bg-destructive/15 text-destructive border-destructive/30 shadow-md">
-                  Falha ao carregar SIGEF
-                </Badge>
-              )}
-            </>
-          )}
+          {/* SIGEF: agora é tile WMS via proxy. Status fica visível no controle de camadas. */}
         </div>
       </div>
 

@@ -1,0 +1,122 @@
+// Proxy CORS+HTTPS para o Acervo Fundiário do INCRA (i3Geo/MapServer).
+//
+// O servidor original (http://acervofundiario.incra.gov.br/i3geo/ogc.php) tem três
+// problemas para uso direto no browser:
+//   1. HTTP-only (mixed content quando o app roda em HTTPS)
+//   2. Sem CORS (Access-Control-Allow-Origin ausente)
+//   3. Latência alta + timeouts ocasionais (servidor i3Geo do governo)
+//
+// Esta edge function repassa requisições WMS (GetMap / GetFeatureInfo) para a
+// camada SIGEF particular da UF correta, devolvendo PNG ou JSON com CORS aberto.
+//
+// ## Como o cliente usa
+// - Tiles WMS: `${FUNCTION_URL}/wms?LAYERS=...&BBOX=...&...` — Leaflet monta a URL.
+// - GetFeatureInfo: mesma rota, com REQUEST=GetFeatureInfo e INFO_FORMAT=text/html.
+//
+// ## Tema por UF
+// O acervo fundiário expõe um tema por UF para SIGEF particular:
+//   `certificada_sigef_particular_<uf>` (ex.: certificada_sigef_particular_sp).
+// O cliente envia `LAYERS=sigef_particular_sp` (alias amigável) e nós convertemos.
+
+import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
+
+const INCRA_BASE = 'http://acervofundiario.incra.gov.br/i3geo/ogc.php';
+
+// UFs suportadas — todas têm tema certificada_sigef_particular_<uf> no acervo.
+const VALID_UFS = new Set([
+  'ac','al','am','ap','ba','ce','df','es','go','ma','mg','ms','mt','pa',
+  'pb','pe','pi','pr','rj','rn','ro','rr','rs','sc','se','sp','to',
+]);
+
+/** Resolve o tema do acervo fundiário a partir do alias enviado pelo cliente. */
+function resolveTema(layers: string): string | null {
+  const lower = layers.toLowerCase().trim();
+  // Aceita tanto o nome completo quanto o atalho `sigef_particular_<uf>`.
+  const matchAlias = lower.match(/^sigef_particular_([a-z]{2})$/);
+  const matchFull = lower.match(/^certificada_sigef_particular_([a-z]{2})$/);
+  const uf = matchAlias?.[1] ?? matchFull?.[1];
+  if (!uf || !VALID_UFS.has(uf)) return null;
+  return `certificada_sigef_particular_${uf}`;
+}
+
+/**
+ * Reconstrói os search params trocando `LAYERS`/`QUERY_LAYERS` pelo tema real
+ * e adicionando o `tema=` no path (o i3Geo usa esse param fora do WMS para
+ * selecionar o mapfile).
+ */
+function buildUpstreamUrl(reqUrl: URL): { url: string; tema: string } | null {
+  const params = new URLSearchParams();
+  let layersParam = '';
+  for (const [k, v] of reqUrl.searchParams) {
+    const key = k.toUpperCase();
+    if (key === 'LAYERS' || key === 'QUERY_LAYERS') layersParam = v;
+    params.set(key, v);
+  }
+  const tema = resolveTema(layersParam);
+  if (!tema) return null;
+  // O i3Geo precisa do `tema` no path E o `LAYERS` no WMS aponta para o tema real.
+  params.set('LAYERS', tema);
+  if (params.has('QUERY_LAYERS')) params.set('QUERY_LAYERS', tema);
+  // Garante service=WMS por default (Leaflet sempre envia, mas defensivo).
+  if (!params.has('SERVICE')) params.set('SERVICE', 'WMS');
+  return {
+    url: `${INCRA_BASE}?tema=${tema}&${params.toString()}`,
+    tema,
+  };
+}
+
+/** Fetch com timeout — o INCRA pode levar 20-40s em queries pesadas. */
+async function fetchUpstream(url: string, timeoutMs = 35000): Promise<Response> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(url, { signal: ctrl.signal });
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
+
+  const url = new URL(req.url);
+  // Aceita qualquer subpath (`/wms`, `/`, etc.) — o cliente usa um path fixo, mas
+  // toda a lógica está nos query params do WMS.
+  const upstream = buildUpstreamUrl(url);
+
+  if (!upstream) {
+    return new Response(
+      JSON.stringify({
+        error: 'Invalid LAYERS param',
+        hint: 'Use LAYERS=sigef_particular_<uf> (ex.: sigef_particular_sp)',
+      }),
+      { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    );
+  }
+
+  try {
+    const upstreamResp = await fetchUpstream(upstream.url);
+    const contentType = upstreamResp.headers.get('content-type') ?? 'application/octet-stream';
+    const body = await upstreamResp.arrayBuffer();
+    // Cache curto: tiles repetem muito (1h é seguro pois o SIGEF muda devagar).
+    const cache = contentType.startsWith('image/') ? 'public, max-age=3600' : 'public, max-age=300';
+    return new Response(body, {
+      status: upstreamResp.status,
+      headers: {
+        ...corsHeaders,
+        'Content-Type': contentType,
+        'Cache-Control': cache,
+        'X-Upstream-Tema': upstream.tema,
+      },
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    console.error('[sigef-incra-proxy] upstream error', upstream.url, msg);
+    return new Response(
+      JSON.stringify({ error: 'Upstream INCRA timeout/erro', detail: msg }),
+      { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    );
+  }
+});

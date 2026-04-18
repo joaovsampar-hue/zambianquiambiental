@@ -3,3 +3,7 @@ project_id = "qvkhwpzisiucgyvbkcgz"
 # Proxy de tiles WMS do SICAR — chamado pelo Leaflet sem token de auth
 [functions.sicar-wms-proxy]
 verify_jwt = false
+
+# Proxy CORS+HTTPS para o acervo fundiário do INCRA (SIGEF) — tiles WMS
+[functions.sigef-incra-proxy]
+verify_jwt = false
