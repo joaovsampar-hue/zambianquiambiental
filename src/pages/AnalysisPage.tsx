@@ -10,8 +10,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { ArrowLeft, Save, AlertTriangle, AlertCircle, Info, Bot, FileText, FileDown } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { exportToWord, exportToPdf } from '@/lib/exportAnalysis';
 import BoundariesTab from '@/components/analysis/BoundariesTab';
+import DeleteButton from '@/components/DeleteButton';
 
 function FieldWithAiIndicator({ label, value, onChange, required, multiline }: {
   label: string; value: unknown; onChange: (v: string) => void; required?: boolean; multiline?: boolean;
@@ -43,6 +45,20 @@ export default function AnalysisPage() {
   const { id } = useParams<{ id: string }>();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+
+  const deleteAnalysis = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from('analyses').delete().eq('id', id!);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['all-analyses'] });
+      toast({ title: 'Análise excluída' });
+      navigate('/history');
+    },
+    onError: (e: any) => toast({ title: 'Erro', description: e.message, variant: 'destructive' }),
+  });
 
   const { data: analysis, isLoading } = useQuery({
     queryKey: ['analysis', id],
