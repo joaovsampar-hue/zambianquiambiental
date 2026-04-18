@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Upload, MapPin, Trash2, Search, Loader2 } from 'lucide-react';
+import { Upload, MapPin, Trash2, Search, Loader2, Maximize2, Minimize2 } from 'lucide-react';
 import { UF_CENTERS } from '@/lib/processStages';
 import {
   SICAR_UFS,
@@ -74,6 +74,7 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
   const [carInput, setCarInput] = useState(carNumber ?? '');
   const [loadingCar, setLoadingCar] = useState(false);
   const [clickedCoord, setClickedCoord] = useState<{ lat: number; lng: number } | null>(null);
+  const [fullscreen, setFullscreen] = useState(false);
   const dataRef = useRef<MapData>({
     geojson: initialData?.geojson ?? null,
     reference_lat: initialData?.reference_lat ?? null,
@@ -192,6 +193,30 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Quando o container muda de tamanho (entra/sai de fullscreen), o Leaflet
+  // precisa recalcular o tamanho dos tiles, senão fica metade cinza.
+  useEffect(() => {
+    if (!mapInstance.current) return;
+    const id = window.setTimeout(() => mapInstance.current?.invalidateSize(), 220);
+    return () => window.clearTimeout(id);
+  }, [fullscreen]);
+
+  // Esc para sair do modo expandido.
+  useEffect(() => {
+    if (!fullscreen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFullscreen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    // Trava scroll do body enquanto o mapa cobre a tela.
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [fullscreen]);
 
   const update = (next: Partial<MapData>) => {
     dataRef.current = { ...dataRef.current, ...next };
@@ -401,17 +426,42 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
   };
 
   return (
-    <div className="space-y-3">
+    <div
+      className={
+        fullscreen
+          ? 'fixed inset-0 z-[1000] bg-background p-4 space-y-3 overflow-auto'
+          : 'space-y-3'
+      }
+    >
       <div className="flex items-center justify-between gap-2 flex-wrap">
         {sourceBadge()}
-        {clickedCoord && (
-          <span className="text-xs font-mono text-muted-foreground">
-            {clickedCoord.lat.toFixed(6)}, {clickedCoord.lng.toFixed(6)}
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {clickedCoord && (
+            <span className="text-xs font-mono text-muted-foreground">
+              {clickedCoord.lat.toFixed(6)}, {clickedCoord.lng.toFixed(6)}
+            </span>
+          )}
+        </div>
       </div>
 
-      <div ref={mapRef} style={{ height, width: '100%' }} className="rounded-lg border border-border z-0" />
+      <div className="relative">
+        <div
+          ref={mapRef}
+          style={{ height: fullscreen ? 'calc(100vh - 180px)' : height, width: '100%' }}
+          className="rounded-lg border border-border z-0"
+        />
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          onClick={() => setFullscreen(f => !f)}
+          className="absolute top-2 left-2 z-[400] shadow-md"
+          title={fullscreen ? 'Sair da tela cheia (Esc)' : 'Expandir mapa'}
+        >
+          {fullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+          <span className="ml-1.5 hidden sm:inline">{fullscreen ? 'Reduzir' : 'Expandir'}</span>
+        </Button>
+      </div>
 
       {!readOnly && (
         <>
