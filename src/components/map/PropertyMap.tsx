@@ -525,7 +525,7 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
       gj.eachLayer((layer: any) => {
         const feat = layer.feature as GeoJSON.Feature | undefined;
         const props = (feat?.properties ?? {}) as any;
-        const denom = props.denomination || props.cod_imovel || 'Imóvel do cliente';
+        const denom = mainPropertyLabel || props.denomination || props.cod_imovel || 'Imóvel do cliente';
         const area = Number(props.area ?? 0);
         const tip = area > 0
           ? `<strong>${denom}</strong><br/>${area.toFixed(2)} ha`
