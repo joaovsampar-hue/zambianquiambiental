@@ -8,12 +8,23 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { useToast } from '@/hooks/use-toast';
 import NeighborForm, { NeighborFormData, emptyNeighbor } from './NeighborForm';
+import PropertyMap from '@/components/map/PropertyMap';
 import { consentLabels, consentColors } from '@/lib/processStages';
-import { Plus, ChevronDown, Trash2, Edit, UserPlus, FileSearch, Loader2, AlertTriangle, Info } from 'lucide-react';
+import { exportNeighborsToExcel } from '@/lib/exportNeighbors';
+import { Plus, ChevronDown, Trash2, Edit, UserPlus, FileSearch, Loader2, AlertTriangle, Info, FileSpreadsheet, MousePointerClick } from 'lucide-react';
 
-interface Props { processId: string; clientId: string; }
+interface Props {
+  processId: string;
+  clientId: string;
+  /** Nome do cliente — usado no cabeçalho do Excel exportado. */
+  clientName?: string;
+  /** Número do processo — incluso no Excel para referência. */
+  processNumber?: string;
+  /** CAR do imóvel principal — habilita o mapa de identificação de confrontantes. */
+  carNumber?: string;
+}
 
-export default function NeighborsList({ processId, clientId: _clientId }: Props) {
+export default function NeighborsList({ processId, clientId: _clientId, clientName, processNumber, carNumber }: Props) {
   const { user } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
