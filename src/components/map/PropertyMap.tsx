@@ -166,15 +166,22 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     setOverlayTilesVisible: (visible: boolean) => {
       const sicar = sicarGroupRef.current;
       const sigef = sigefGroupRef.current;
+      const main = layerGroup.current;
+      const neighbors = neighborsLayer.current;
       const map = mapInstance.current;
       if (!map) return;
-      [sicar, sigef].forEach(group => {
+      // Esconde TUDO que não é basemap durante a captura para o PDF.
+      [sicar, sigef, main, neighbors].forEach(group => {
         if (!group) return;
         group.eachLayer(l => {
           const el = (l as any).getContainer?.() as HTMLElement | undefined;
           if (el) el.style.visibility = visible ? '' : 'hidden';
+          const path = (l as any)._path as SVGElement | undefined;
+          if (path) path.style.opacity = visible ? '' : '0';
         });
       });
+      const overlayPane = map.getPane('overlayPane');
+      if (overlayPane) overlayPane.style.opacity = visible ? '' : '0';
     },
   }), []);
 
