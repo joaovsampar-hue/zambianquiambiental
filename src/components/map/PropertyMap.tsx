@@ -860,39 +860,7 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
               )}
             </>
           )}
-          {sigefStatus !== 'idle' && (
-            <>
-              {sigefStatus === 'loading' && (
-                <Badge className="shadow-md gap-1.5" style={{ backgroundColor: 'hsl(28,90%,95%)', color: 'hsl(28,90%,30%)', borderColor: 'hsl(28,90%,75%)' }}>
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                  Carregando parcelas SIGEF…
-                </Badge>
-              )}
-              {sigefStatus === 'done' && (
-                <Badge className="shadow-md" style={{ backgroundColor: 'hsl(28,90%,95%)', color: 'hsl(28,90%,30%)', borderColor: 'hsl(28,90%,75%)' }}>
-                  SIGEF: {sigefCount} parcela{sigefCount === 1 ? '' : 's'} visível{sigefCount === 1 ? '' : 'is'}
-                </Badge>
-              )}
-              {sigefStatus === 'empty' && (
-                <Badge
-                  className="bg-muted text-muted-foreground border-border shadow-md cursor-help"
-                  title="A camada pública do INCRA no ArcGIS Online cobre apenas parcelas dentro de buffers de 5 km ao redor de áreas indígenas, quilombolas e assentamentos. Regiões agrícolas comuns ficam fora desta cobertura. O dataset SIGEF nacional completo só está disponível mediante login gov.br em certificacao.incra.gov.br."
-                >
-                  SIGEF: sem parcelas na cobertura pública (?)
-                </Badge>
-              )}
-              {sigefStatus === 'zoomout' && (
-                <Badge className="bg-muted text-muted-foreground border-border shadow-md">
-                  SIGEF: aproxime o zoom (≥ 12) para ver parcelas
-                </Badge>
-              )}
-              {sigefStatus === 'error' && (
-                <Badge className="bg-destructive/15 text-destructive border-destructive/30 shadow-md">
-                  Falha ao carregar SIGEF
-                </Badge>
-              )}
-            </>
-          )}
+          {/* SIGEF: agora é tile WMS via proxy. Status fica visível no controle de camadas. */}
         </div>
       </div>
 
