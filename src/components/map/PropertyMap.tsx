@@ -22,6 +22,7 @@ import {
   sanitizeCar,
   type SicarUF,
 } from '@/lib/sicar';
+import { fetchSigefByBBox, parseSigefProperties } from '@/lib/sigef';
 
 // Fix default Leaflet marker icons in bundler
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -80,6 +81,11 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
   const mapInstance = useRef<L.Map | null>(null);
   const layerGroup = useRef<L.LayerGroup | null>(null);
   const neighborsLayer = useRef<L.LayerGroup | null>(null);
+  // Camada SIGEF — parcelas certificadas pelo INCRA. Carregada por BBOX só quando
+  // o usuário ativa o overlay (via controle do Leaflet) E o zoom está ≥ 12.
+  const sigefLayer = useRef<L.LayerGroup | null>(null);
+  const sigefActive = useRef<boolean>(false);
+  const sigefFetchToken = useRef<number>(0);
   const [coords, setCoords] = useState(initialData?.coordinates_text ?? '');
   const [carInput, setCarInput] = useState(carNumber ?? '');
   const [loadingCar, setLoadingCar] = useState(false);
@@ -89,6 +95,9 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
   // Status da consulta de confrontantes ao SICAR — alimenta o badge de status.
   const [neighborStatus, setNeighborStatus] = useState<'idle' | 'loading' | 'done' | 'empty' | 'error'>('idle');
   const [neighborCount, setNeighborCount] = useState(0);
+  // Status da camada SIGEF — alimenta um badge separado quando ativa.
+  const [sigefStatus, setSigefStatus] = useState<'idle' | 'zoomout' | 'loading' | 'done' | 'empty' | 'error'>('idle');
+  const [sigefCount, setSigefCount] = useState(0);
   const dataRef = useRef<MapData>({
     geojson: initialData?.geojson ?? null,
     reference_lat: initialData?.reference_lat ?? null,
@@ -202,12 +211,38 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
       overlays[`SICAR — ${uf}`] = wms;
     });
 
+    // ===== OVERLAY SIGEF (parcelas certificadas pelo INCRA) =====
+    // Carregado dinamicamente por BBOX a cada moveend quando ativo. Usa cor
+    // laranja pra distinguir visualmente do SICAR (azul/cinza/verde).
+    sigefLayer.current = L.layerGroup();
+    overlays['SIGEF — Parcelas certificadas (INCRA)'] = sigefLayer.current;
+
     L.control
       .layers(bases, overlays, { position: 'topright', collapsed: true })
       .addTo(map);
 
     layerGroup.current = L.layerGroup().addTo(map);
     neighborsLayer.current = L.layerGroup().addTo(map);
+
+    // Liga/desliga o fetcher dinâmico do SIGEF conforme o usuário marca o overlay.
+    map.on('overlayadd', (e: L.LayersControlEvent) => {
+      if (e.layer === sigefLayer.current) {
+        sigefActive.current = true;
+        setSigefStatus('idle');
+        loadSigefForCurrentBounds();
+      }
+    });
+    map.on('overlayremove', (e: L.LayersControlEvent) => {
+      if (e.layer === sigefLayer.current) {
+        sigefActive.current = false;
+        sigefLayer.current?.clearLayers();
+        setSigefStatus('idle');
+        setSigefCount(0);
+      }
+    });
+    map.on('moveend', () => {
+      if (sigefActive.current) loadSigefForCurrentBounds();
+    });
 
     map.on('click', async (e: L.LeafletMouseEvent) => {
       setClickedCoord({ lat: e.latlng.lat, lng: e.latlng.lng });
@@ -293,6 +328,60 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     dataRef.current = { ...dataRef.current, ...next };
     if (next.source !== undefined) setSource(next.source as GeometrySource);
     onChange(dataRef.current);
+  };
+
+  // Carrega parcelas SIGEF dentro do BBOX visível atual. Só roda em zoom ≥ 12 —
+  // abaixo disso a query devolveria milhares de features e travaria o mapa.
+  // Cada chamada incrementa um token; respostas tardias de chamadas antigas são
+  // descartadas (evita race quando o usuário arrasta rápido).
+  const loadSigefForCurrentBounds = async () => {
+    const map = mapInstance.current;
+    const lg = sigefLayer.current;
+    if (!map || !lg) return;
+    if (map.getZoom() < 12) {
+      lg.clearLayers();
+      setSigefStatus('zoomout');
+      setSigefCount(0);
+      return;
+    }
+    const b = map.getBounds();
+    const token = ++sigefFetchToken.current;
+    setSigefStatus('loading');
+    const fc = await fetchSigefByBBox(b.getWest(), b.getSouth(), b.getEast(), b.getNorth(), 200);
+    // Resposta antiga? descarta.
+    if (token !== sigefFetchToken.current) return;
+    if (!fc) {
+      setSigefStatus('error');
+      return;
+    }
+    lg.clearLayers();
+    const features = fc.features ?? [];
+    L.geoJSON(fc, {
+      style: {
+        color: 'hsl(28,90%,45%)',
+        weight: 1.5,
+        fillColor: 'hsl(28,90%,55%)',
+        fillOpacity: 0.18,
+      },
+      onEachFeature: (feat, layer) => {
+        const p = parseSigefProperties((feat.properties ?? {}) as Record<string, unknown>);
+        const html = `
+          <div class="text-xs space-y-1.5" style="min-width:240px">
+            <div class="font-semibold" style="color:hsl(28,90%,40%)">Parcela SIGEF (INCRA)</div>
+            <div><span class="text-muted-foreground">Nome:</span> ${p.nome_area || '—'}</div>
+            <div><span class="text-muted-foreground">Situação:</span> ${p.situacao || '—'}</div>
+            ${p.matricula ? `<div><span class="text-muted-foreground">Matrícula:</span> ${p.matricula}</div>` : ''}
+            ${p.codigo_imovel ? `<div><span class="text-muted-foreground">Cód. imóvel:</span> <span class="font-mono">${p.codigo_imovel}</span></div>` : ''}
+            ${p.responsavel_tecnico ? `<div><span class="text-muted-foreground">Resp. técnico:</span> ${p.responsavel_tecnico}</div>` : ''}
+            ${p.numero_art ? `<div><span class="text-muted-foreground">ART:</span> ${p.numero_art}</div>` : ''}
+            <div><span class="text-muted-foreground">Município:</span> ${p.municipio}${p.uf ? '/' + p.uf : ''}</div>
+            <div class="pt-1 text-[11px] text-muted-foreground italic">Cód. parcela: ${p.codigo_parcela}</div>
+          </div>`;
+        layer.bindPopup(html);
+      },
+    }).addTo(lg);
+    setSigefCount(features.length);
+    setSigefStatus(features.length > 0 ? 'done' : 'empty');
   };
 
   const renderGeometry = (d: MapData) => {
@@ -704,31 +793,63 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
           {fullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
           <span className="ml-1.5 hidden sm:inline">{fullscreen ? 'Reduzir' : 'Expandir'}</span>
         </Button>
-        {neighborStatus !== 'idle' && (
-          <div className="absolute top-2 right-14 z-[400]">
-            {neighborStatus === 'loading' && (
-              <Badge className="bg-info/15 text-info border-info/30 shadow-md gap-1.5">
-                <Loader2 className="w-3 h-3 animate-spin" />
-                Buscando confrontantes…
-              </Badge>
-            )}
-            {neighborStatus === 'done' && (
-              <Badge className="bg-success/15 text-success border-success/30 shadow-md">
-                {neighborCount} confrontante{neighborCount === 1 ? '' : 's'} detectado{neighborCount === 1 ? '' : 's'}
-              </Badge>
-            )}
-            {neighborStatus === 'empty' && (
-              <Badge className="bg-muted text-muted-foreground border-border shadow-md">
-                Nenhum confrontante detectado
-              </Badge>
-            )}
-            {neighborStatus === 'error' && (
-              <Badge className="bg-destructive/15 text-destructive border-destructive/30 shadow-md">
-                Falha ao consultar SICAR
-              </Badge>
-            )}
-          </div>
-        )}
+        <div className="absolute top-2 right-14 z-[400] flex flex-col items-end gap-1.5">
+          {neighborStatus !== 'idle' && (
+            <>
+              {neighborStatus === 'loading' && (
+                <Badge className="bg-info/15 text-info border-info/30 shadow-md gap-1.5">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Buscando confrontantes…
+                </Badge>
+              )}
+              {neighborStatus === 'done' && (
+                <Badge className="bg-success/15 text-success border-success/30 shadow-md">
+                  {neighborCount} confrontante{neighborCount === 1 ? '' : 's'} detectado{neighborCount === 1 ? '' : 's'}
+                </Badge>
+              )}
+              {neighborStatus === 'empty' && (
+                <Badge className="bg-muted text-muted-foreground border-border shadow-md">
+                  Nenhum confrontante detectado
+                </Badge>
+              )}
+              {neighborStatus === 'error' && (
+                <Badge className="bg-destructive/15 text-destructive border-destructive/30 shadow-md">
+                  Falha ao consultar SICAR
+                </Badge>
+              )}
+            </>
+          )}
+          {sigefStatus !== 'idle' && (
+            <>
+              {sigefStatus === 'loading' && (
+                <Badge className="shadow-md gap-1.5" style={{ backgroundColor: 'hsl(28,90%,95%)', color: 'hsl(28,90%,30%)', borderColor: 'hsl(28,90%,75%)' }}>
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Carregando parcelas SIGEF…
+                </Badge>
+              )}
+              {sigefStatus === 'done' && (
+                <Badge className="shadow-md" style={{ backgroundColor: 'hsl(28,90%,95%)', color: 'hsl(28,90%,30%)', borderColor: 'hsl(28,90%,75%)' }}>
+                  SIGEF: {sigefCount} parcela{sigefCount === 1 ? '' : 's'} visível{sigefCount === 1 ? '' : 'is'}
+                </Badge>
+              )}
+              {sigefStatus === 'empty' && (
+                <Badge className="bg-muted text-muted-foreground border-border shadow-md">
+                  SIGEF: nenhuma parcela na área
+                </Badge>
+              )}
+              {sigefStatus === 'zoomout' && (
+                <Badge className="bg-muted text-muted-foreground border-border shadow-md">
+                  SIGEF: aproxime o zoom (≥ 12) para ver parcelas
+                </Badge>
+              )}
+              {sigefStatus === 'error' && (
+                <Badge className="bg-destructive/15 text-destructive border-destructive/30 shadow-md">
+                  Falha ao carregar SIGEF
+                </Badge>
+              )}
+            </>
+          )}
+        </div>
       </div>
 
       {!readOnly && (
