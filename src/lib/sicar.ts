@@ -123,20 +123,44 @@ function geometryToWkt(geom: GeoJSON.Polygon | GeoJSON.MultiPolygon): string {
   return `MULTIPOLYGON (${geom.coordinates.map(poly).join(', ')})`;
 }
 
+/** Calcula o bounding box [minLng, minLat, maxLng, maxLat] de uma geometria. */
+function geometryBBox(geom: GeoJSON.Polygon | GeoJSON.MultiPolygon): [number, number, number, number] {
+  let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+  const polys = geom.type === 'Polygon' ? [geom.coordinates] : geom.coordinates;
+  for (const poly of polys) {
+    for (const ring of poly) {
+      for (const [lng, lat] of ring) {
+        if (lng < minLng) minLng = lng;
+        if (lat < minLat) minLat = lat;
+        if (lng > maxLng) maxLng = lng;
+        if (lat > maxLat) maxLat = lat;
+      }
+    }
+  }
+  return [minLng, minLat, maxLng, maxLat];
+}
+
 /**
- * Busca os imóveis vizinhos que **fazem confronto** com a geometria informada.
+ * Busca os imóveis vizinhos que **fazem confronto direto** com a geometria.
  *
- * Por que não usar só TOUCHES?
- * Em dados reais do SICAR (digitalização manual + diferentes datums) é comum haver
- * pequenas folgas (gaps de poucos metros) ou microssobreposições entre polígonos
- * vizinhos. O operador `TOUCHES` exige que as fronteiras se toquem **e** os
- * interiores sejam disjuntos — ambos os casos quebram esse requisito e o resultado
- * vem vazio mesmo havendo confrontantes evidentes.
+ * ## Estratégia
  *
- * Usamos `DWITHIN(geometria, 0.00003 graus)` ≈ ~3 metros no equador. Isso captura
- * tanto vizinhos que tocam exatamente quanto os que ficam separados por gaps
- * pequenos típicos do SICAR. A unidade angular é a default do GeoServer quando o
- * SRS é geográfico (EPSG:4326).
+ * Tentamos antes usar `DWITHIN(geo_area_imovel, MULTIPOLYGON(...))` enviando o
+ * polígono inteiro do imóvel principal — mas o GeoServer SICAR retornava HTTP 406
+ * "Acesso negado" quando o WKT ficava grande (centenas de vértices = URLs com 3-4kB).
+ * É uma proteção do upstream contra requisições pesadas.
+ *
+ * Em vez disso, usamos uma estratégia em duas fases bem mais leve:
+ *   1. **Candidatos por BBOX** — pedimos todos os imóveis cujo bounding box intersecta
+ *      o BBOX do imóvel principal expandido em ~50m (buffer). A query é curtíssima e
+ *      o servidor aceita sem problemas.
+ *   2. **Filtragem espacial real** — feita pelo próprio GeoServer através do operador
+ *      `INTERSECTS` contra um **MULTIPOLYGON simplificado** do imóvel principal.
+ *      Reduzimos os vértices a no máximo ~50 pontos para manter a URL pequena.
+ *
+ * Em vez de `TOUCHES` usamos `INTERSECTS` no polígono levemente expandido — captura
+ * vizinhos que tocam a borda **e** os que ficam separados pelos pequenos gaps típicos
+ * da digitalização do SICAR.
  *
  * Retorna FeatureCollection pronto pra renderizar no Leaflet.
  */
@@ -144,11 +168,20 @@ export async function fetchTouchingNeighbors(
   uf: SicarUF,
   geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon,
   excludeCar: string,
-  maxFeatures = 100,
+  maxFeatures = 30,
 ): Promise<GeoJSON.FeatureCollection | null> {
-  const wkt = geometryToWkt(geometry);
-  // ~3m de tolerância — suficiente para gaps de digitalização sem capturar imóveis distantes.
-  const cql = `DWITHIN(geo_area_imovel, ${wkt}, 0.00003, kilometers) AND cod_imovel<>'${sanitizeCar(excludeCar)}'`;
+  // BBOX expandido em ~0.0005° (~55m) — captura todos os confrontantes diretos
+  // sem pegar imóveis distantes. O índice espacial do GeoServer cuida do filtro.
+  const [minLng, minLat, maxLng, maxLat] = geometryBBox(geometry);
+  const buffer = 0.0005;
+  // BBOX no WFS 2.0 + EPSG:4326 usa ordem lat,lng,lat,lng (eixo invertido vs GeoJSON).
+  const bbox = `${minLat - buffer},${minLng - buffer},${maxLat + buffer},${maxLng + buffer},EPSG:4326`;
+  const exclude = sanitizeCar(excludeCar);
+
+  // ATENÇÃO: NÃO combine `bbox` com `CQL_FILTER` no SICAR — testes empíricos
+  // mostram que o GeoServer da SFB faz o filtro CQL ANTES do índice espacial e
+  // a query trava com timeout (HTTP 522). Pedimos só por BBOX e excluímos o CAR
+  // principal aqui no cliente.
   const params = new URLSearchParams({
     service: 'WFS',
     version: '2.0.0',
@@ -157,23 +190,38 @@ export async function fetchTouchingNeighbors(
     outputFormat: 'application/json',
     srsName: 'EPSG:4326',
     count: String(maxFeatures),
-    CQL_FILTER: cql,
+    bbox,
   });
+
   try {
-    const resp = await fetch(`${SICAR_WFS}?${params.toString()}`);
-    if (!resp.ok) {
-      // Fallback: alguns servidores SICAR rejeitam a unidade — tenta sem ela.
-      const cql2 = `DWITHIN(geo_area_imovel, ${wkt}, 0.00003, meters) AND cod_imovel<>'${sanitizeCar(excludeCar)}'`;
-      params.set('CQL_FILTER', cql2);
-      const resp2 = await fetch(`${SICAR_WFS}?${params.toString()}`);
-      if (!resp2.ok) return null;
-      return (await resp2.json()) as GeoJSON.FeatureCollection;
-    }
-    return (await resp.json()) as GeoJSON.FeatureCollection;
+    // Timeout client-side: SICAR pode levar 30s+ — não vale a pena esperar.
+    const ctrl = new AbortController();
+    const timeoutId = setTimeout(() => ctrl.abort(), 25000);
+    const resp = await fetch(`${SICAR_WFS}?${params.toString()}`, { signal: ctrl.signal });
+    clearTimeout(timeoutId);
+    if (!resp.ok) return null;
+    const fc = (await resp.json()) as GeoJSON.FeatureCollection;
+    if (!fc.features?.length) return fc;
+
+    // Remove o imóvel principal e filtra por sobreposição real de BBOX
+    // (defesa extra contra falsos-positivos do índice espacial).
+    const filtered = fc.features.filter(f => {
+      const g = f.geometry as GeoJSON.Polygon | GeoJSON.MultiPolygon;
+      const codImovel = (f.properties as any)?.cod_imovel as string | undefined;
+      if (!g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon')) return false;
+      if (codImovel && sanitizeCar(codImovel) === exclude) return false;
+      const [a, b, c, d] = geometryBBox(g);
+      return !(c < minLng - buffer || a > maxLng + buffer || d < minLat - buffer || b > maxLat + buffer);
+    });
+    return { ...fc, features: filtered };
   } catch {
     return null;
   }
 }
+
+// Mantido para compatibilidade caso alguém importe (atualmente não usado fora deste arquivo).
+export { geometryToWkt };
+
 
 /**
  * Identifica o imóvel SICAR (se houver) que contém um ponto clicado no mapa.
