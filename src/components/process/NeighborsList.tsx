@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -6,11 +6,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import PropertyMap from '@/components/map/PropertyMap';
 import { exportNeighborsToExcel } from '@/lib/exportNeighbors';
-import { Plus, Trash2, FileSpreadsheet, MousePointerClick, MapPin, Edit } from 'lucide-react';
+import { Plus, Trash2, FileSpreadsheet, MousePointerClick, MapPin, Edit, FileText, Loader2 } from 'lucide-react';
 
 interface Props {
   processId: string;
@@ -24,26 +25,73 @@ interface Props {
 }
 
 const POSITIONS = ['N', 'S', 'L', 'O', 'NE', 'NO', 'SE', 'SO'];
+const MARITAL = ['solteiro', 'casado', 'divorciado', 'viuvo', 'uniao_estavel'];
+const REGIMES = ['comunhao_parcial', 'comunhao_universal', 'separacao_total', 'separacao_obrigatoria', 'participacao_aquestos'];
 
 interface MiniForm {
   full_name: string;
+  cpf_cnpj: string;
+  rg: string;
+  rg_issuer: string;
+  marital_status: string;
+  marriage_regime: string;
+  spouse_name: string;
+  spouse_cpf: string;
+  spouse_rg: string;
   registration_number: string;
+  ccir_number: string;
   phone: string;
   positions: string[];
   car_number: string;
   registry_office: string;
   property_denomination: string;
+  extracted_data: any;
 }
 
 const emptyMini = (): MiniForm => ({
   full_name: '',
+  cpf_cnpj: '',
+  rg: '',
+  rg_issuer: '',
+  marital_status: '',
+  marriage_regime: '',
+  spouse_name: '',
+  spouse_cpf: '',
+  spouse_rg: '',
   registration_number: '',
+  ccir_number: '',
   phone: '',
   positions: [],
   car_number: '',
   registry_office: '',
   property_denomination: '',
+  extracted_data: {},
 });
+
+/** Mapeia regime textual livre da IA para o enum do formulário. */
+function mapRegime(raw?: string | null): string {
+  if (!raw) return '';
+  const s = raw.toLowerCase();
+  if (s.includes('parcial')) return 'comunhao_parcial';
+  if (s.includes('universal')) return 'comunhao_universal';
+  if (s.includes('obrigat')) return 'separacao_obrigatoria';
+  if (s.includes('separa')) return 'separacao_total';
+  if (s.includes('aquesto') || s.includes('participa')) return 'participacao_aquestos';
+  // legado: "comunhão de bens, anterior à Lei 6.515/77" => comunhão universal era padrão
+  if (s.includes('comunh')) return 'comunhao_universal';
+  return '';
+}
+
+function mapMaritalStatus(raw?: string | null): string {
+  if (!raw) return '';
+  const s = raw.toLowerCase();
+  if (s.startsWith('cas')) return 'casado';
+  if (s.startsWith('solt')) return 'solteiro';
+  if (s.startsWith('divorc')) return 'divorciado';
+  if (s.startsWith('viuv') || s.startsWith('viúv')) return 'viuvo';
+  if (s.includes('uni') && s.includes('est')) return 'uniao_estavel';
+  return '';
+}
 
 export default function NeighborsList({ processId, clientName, processNumber, carNumber }: Props) {
   const { user } = useAuth();
@@ -53,7 +101,8 @@ export default function NeighborsList({ processId, clientName, processNumber, ca
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<MiniForm>(emptyMini());
   const [showMap, setShowMap] = useState(false);
-  // Confrontantes diretos detectados pelo SICAR (TOUCHES) que ainda não foram cadastrados.
+  const [analyzing, setAnalyzing] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [detected, setDetected] = useState<Array<{ car: string; area: number; municipio: string; uf: string }>>([]);
 
   const { data: neighbors = [] } = useQuery({
@@ -69,7 +118,6 @@ export default function NeighborsList({ processId, clientName, processNumber, ca
     },
   });
 
-  // CARs já cadastrados — usado para esconder da lista de "detectados" os que já entraram.
   const registeredCars = useMemo(
     () => new Set((neighbors as any[]).map(n => n.car_number).filter(Boolean)),
     [neighbors],
@@ -84,12 +132,22 @@ export default function NeighborsList({ processId, clientName, processNumber, ca
       const phones = form.phone.trim() ? [{ number: form.phone.trim(), whatsapp: true }] : [];
       const payload = {
         full_name: form.full_name || null,
+        cpf_cnpj: form.cpf_cnpj || null,
+        rg: form.rg || null,
+        rg_issuer: form.rg_issuer || null,
+        marital_status: form.marital_status || null,
+        marriage_regime: form.marriage_regime || null,
+        spouse_name: form.spouse_name || null,
+        spouse_cpf: form.spouse_cpf || null,
+        spouse_rg: form.spouse_rg || null,
         registration_number: form.registration_number || null,
+        ccir_number: form.ccir_number || null,
         phones: phones as any,
         positions: form.positions,
         car_number: form.car_number || null,
         registry_office: form.registry_office || null,
         property_denomination: form.property_denomination || null,
+        extracted_data: form.extracted_data ?? {},
       };
       if (editingId) {
         const { error } = await supabase.from('process_neighbors').update(payload as any).eq('id', editingId);
@@ -132,17 +190,26 @@ export default function NeighborsList({ processId, clientName, processNumber, ca
     setEditingId(n.id);
     setForm({
       full_name: n.full_name ?? '',
+      cpf_cnpj: n.cpf_cnpj ?? '',
+      rg: n.rg ?? '',
+      rg_issuer: n.rg_issuer ?? '',
+      marital_status: n.marital_status ?? '',
+      marriage_regime: n.marriage_regime ?? '',
+      spouse_name: n.spouse_name ?? '',
+      spouse_cpf: n.spouse_cpf ?? '',
+      spouse_rg: n.spouse_rg ?? '',
       registration_number: n.registration_number ?? '',
+      ccir_number: n.ccir_number ?? '',
       phone: n.phones?.[0]?.number ?? '',
       positions: n.positions ?? [],
       car_number: n.car_number ?? '',
       registry_office: n.registry_office ?? '',
       property_denomination: n.property_denomination ?? '',
+      extracted_data: n.extracted_data ?? {},
     });
     setOpen(true);
   };
 
-  /** Pré-preenche o formulário com dados de um imóvel SICAR clicado no mapa. */
   const openFromMap = (info: { car: string; area: number; municipio: string; uf: string }) => {
     setEditingId(null);
     setForm({
@@ -153,7 +220,6 @@ export default function NeighborsList({ processId, clientName, processNumber, ca
     setOpen(true);
   };
 
-  /** Adiciona direto (sem abrir formulário) um confrontante detectado pelo SICAR. */
   const quickAddDetected = async (d: { car: string; area: number; municipio: string; uf: string }) => {
     const { error } = await supabase.from('process_neighbors').insert({
       process_id: processId,
@@ -178,6 +244,52 @@ export default function NeighborsList({ processId, clientName, processNumber, ca
     }));
   };
 
+  /** Faz upload do PDF da matrícula do confrontante e roda a IA. */
+  const analyzeMatricula = async (file: File) => {
+    if (!user) return;
+    setAnalyzing(true);
+    try {
+      const filePath = `${user.id}/neighbor_${Date.now()}_${file.name}`;
+      const { error: upErr } = await supabase.storage.from('matriculas').upload(filePath, file);
+      if (upErr) throw upErr;
+
+      const { data, error } = await supabase.functions.invoke('analyze-neighbor-matricula', {
+        body: { pdfPath: filePath },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      const owner = (data?.proprietarios_atuais ?? [])[0] ?? {};
+      setForm(f => ({
+        ...f,
+        full_name: owner.nome || f.full_name,
+        cpf_cnpj: owner.cpf || f.cpf_cnpj,
+        rg: owner.rg || f.rg,
+        rg_issuer: owner.rg_orgao || f.rg_issuer,
+        marital_status: mapMaritalStatus(owner.estado_civil) || f.marital_status,
+        marriage_regime: mapRegime(owner.regime_casamento) || f.marriage_regime,
+        spouse_name: owner.conjuge_nome || f.spouse_name,
+        spouse_cpf: owner.conjuge_cpf || f.spouse_cpf,
+        registration_number: data?.matricula_numero || f.registration_number,
+        ccir_number: data?.ccir || f.ccir_number,
+        registry_office: data?.cartorio || f.registry_office,
+        property_denomination: data?.denominacao_imovel || f.property_denomination,
+        extracted_data: data,
+      }));
+
+      const ownersFound = (data?.proprietarios_atuais ?? []).length;
+      toast({
+        title: 'Matrícula analisada',
+        description: `${ownersFound} proprietário(s) extraído(s). Revise e salve.`,
+      });
+    } catch (e: any) {
+      toast({ title: 'Erro na análise', description: e.message, variant: 'destructive' });
+    } finally {
+      setAnalyzing(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
   const handleExport = () => {
     if (!neighbors.length) {
       toast({ title: 'Nada a exportar', description: 'Cadastre confrontantes primeiro.' });
@@ -190,6 +302,8 @@ export default function NeighborsList({ processId, clientName, processNumber, ca
     });
     toast({ title: 'Planilha gerada', description: 'O download foi iniciado.' });
   };
+
+  const showSpouse = form.marital_status === 'casado';
 
   return (
     <div className="space-y-3">
@@ -214,27 +328,72 @@ export default function NeighborsList({ processId, clientName, processNumber, ca
             <DialogTrigger asChild>
               <Button size="sm" onClick={openNew}><Plus className="w-4 h-4 mr-1.5" />Adicionar</Button>
             </DialogTrigger>
-            <DialogContent className="max-w-lg">
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>{editingId ? 'Editar confrontante' : 'Novo confrontante'}</DialogTitle>
               </DialogHeader>
-              <div className="space-y-3">
-                <div>
-                  <Label className="text-xs">Nome do proprietário</Label>
-                  <Input
-                    value={form.full_name}
-                    onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))}
-                    className="mt-1.5"
+
+              {/* Botão de análise por IA — extrai todos os dados do PDF da matrícula */}
+              <div className="rounded-lg border border-dashed border-primary/40 bg-primary/5 p-3 space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium flex items-center gap-1.5">
+                      <FileText className="w-4 h-4 text-primary" /> Análise automática da matrícula
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Faça upload do PDF da matrícula do confrontante — a IA preenche proprietário, CPF/RG, estado civil, regime, CCIR, cartório, denominação e mais.
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={analyzing}
+                  >
+                    {analyzing ? (
+                      <><Loader2 className="w-4 h-4 mr-1.5 animate-spin" />Analisando…</>
+                    ) : (
+                      <><FileText className="w-4 h-4 mr-1.5" />Analisar PDF</>
+                    )}
+                  </Button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".pdf"
+                    className="hidden"
+                    onChange={e => e.target.files?.[0] && analyzeMatricula(e.target.files[0])}
                   />
                 </div>
+              </div>
+
+              <div className="space-y-3 pt-1">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <Label className="text-xs">Matrícula</Label>
+                    <Label className="text-xs">Nome do proprietário</Label>
                     <Input
-                      value={form.registration_number}
-                      onChange={e => setForm(f => ({ ...f, registration_number: e.target.value }))}
+                      value={form.full_name}
+                      onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))}
                       className="mt-1.5"
                     />
+                  </div>
+                  <div>
+                    <Label className="text-xs">CPF / CNPJ</Label>
+                    <Input
+                      value={form.cpf_cnpj}
+                      onChange={e => setForm(f => ({ ...f, cpf_cnpj: e.target.value }))}
+                      className="mt-1.5"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <Label className="text-xs">RG</Label>
+                    <Input value={form.rg} onChange={e => setForm(f => ({ ...f, rg: e.target.value }))} className="mt-1.5" />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Órgão emissor</Label>
+                    <Input value={form.rg_issuer} onChange={e => setForm(f => ({ ...f, rg_issuer: e.target.value }))} className="mt-1.5" />
                   </div>
                   <div>
                     <Label className="text-xs">Telefone</Label>
@@ -246,32 +405,91 @@ export default function NeighborsList({ processId, clientName, processNumber, ca
                     />
                   </div>
                 </div>
-                <div>
-                  <Label className="text-xs">CAR</Label>
-                  <Input
-                    value={form.car_number}
-                    onChange={e => setForm(f => ({ ...f, car_number: e.target.value.toUpperCase() }))}
-                    className="mt-1.5 font-mono text-xs"
-                  />
-                </div>
+
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <Label className="text-xs">Cartório</Label>
-                    <Input
-                      value={form.registry_office}
-                      onChange={e => setForm(f => ({ ...f, registry_office: e.target.value }))}
-                      className="mt-1.5"
-                    />
+                    <Label className="text-xs">Estado civil</Label>
+                    <Select value={form.marital_status} onValueChange={v => setForm(f => ({ ...f, marital_status: v }))}>
+                      <SelectTrigger className="mt-1.5"><SelectValue placeholder="—" /></SelectTrigger>
+                      <SelectContent>
+                        {MARITAL.map(m => <SelectItem key={m} value={m}>{m.replace('_', ' ')}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
                   </div>
-                  <div>
-                    <Label className="text-xs">Denominação do imóvel</Label>
-                    <Input
-                      value={form.property_denomination}
-                      onChange={e => setForm(f => ({ ...f, property_denomination: e.target.value }))}
-                      className="mt-1.5"
-                    />
+                  {showSpouse && (
+                    <div>
+                      <Label className="text-xs">Regime de bens</Label>
+                      <Select value={form.marriage_regime} onValueChange={v => setForm(f => ({ ...f, marriage_regime: v }))}>
+                        <SelectTrigger className="mt-1.5"><SelectValue placeholder="—" /></SelectTrigger>
+                        <SelectContent>
+                          {REGIMES.map(r => <SelectItem key={r} value={r}>{r.replace(/_/g, ' ')}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                </div>
+
+                {showSpouse && (
+                  <Card className="bg-muted/30">
+                    <CardContent className="p-3 space-y-2">
+                      <p className="text-xs font-medium text-muted-foreground">Cônjuge</p>
+                      <div className="grid grid-cols-3 gap-2">
+                        <Input placeholder="Nome" value={form.spouse_name} onChange={e => setForm(f => ({ ...f, spouse_name: e.target.value }))} />
+                        <Input placeholder="CPF" value={form.spouse_cpf} onChange={e => setForm(f => ({ ...f, spouse_cpf: e.target.value }))} />
+                        <Input placeholder="RG" value={form.spouse_rg} onChange={e => setForm(f => ({ ...f, spouse_rg: e.target.value }))} />
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                <div className="border-t border-border pt-3 space-y-3">
+                  <p className="text-xs font-medium text-muted-foreground">Imóvel confrontante</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs">Denominação</Label>
+                      <Input
+                        value={form.property_denomination}
+                        onChange={e => setForm(f => ({ ...f, property_denomination: e.target.value }))}
+                        className="mt-1.5"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Nº matrícula</Label>
+                      <Input
+                        value={form.registration_number}
+                        onChange={e => setForm(f => ({ ...f, registration_number: e.target.value }))}
+                        className="mt-1.5"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <Label className="text-xs">CAR</Label>
+                      <Input
+                        value={form.car_number}
+                        onChange={e => setForm(f => ({ ...f, car_number: e.target.value.toUpperCase() }))}
+                        className="mt-1.5 font-mono text-xs"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Cartório</Label>
+                      <Input
+                        value={form.registry_office}
+                        onChange={e => setForm(f => ({ ...f, registry_office: e.target.value }))}
+                        className="mt-1.5"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">CCIR</Label>
+                      <Input
+                        value={form.ccir_number}
+                        onChange={e => setForm(f => ({ ...f, ccir_number: e.target.value }))}
+                        className="mt-1.5"
+                      />
+                    </div>
                   </div>
                 </div>
+
                 <div>
                   <Label className="text-xs">Posição (limite)</Label>
                   <div className="flex flex-wrap gap-1.5 mt-1.5">
@@ -292,6 +510,7 @@ export default function NeighborsList({ processId, clientName, processNumber, ca
                   </div>
                 </div>
               </div>
+
               <div className="flex justify-end gap-2 pt-3 border-t border-border">
                 <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
                 <Button onClick={() => save.mutate()} disabled={save.isPending}>Salvar</Button>
@@ -319,7 +538,6 @@ export default function NeighborsList({ processId, clientName, processNumber, ca
         </Card>
       )}
 
-      {/* Detectados pelo SICAR mas ainda não cadastrados — botão de cadastro rápido */}
       {pendingDetected.length > 0 && (
         <Card className="border-info/40 bg-info/5">
           <CardContent className="p-3 space-y-2">
@@ -344,7 +562,6 @@ export default function NeighborsList({ processId, clientName, processNumber, ca
         </Card>
       )}
 
-      {/* Lista enxuta dos confrontantes cadastrados */}
       {neighbors.length === 0 ? (
         <div className="text-center py-8 text-sm text-muted-foreground border border-dashed border-border rounded-lg">
           {carNumber
@@ -359,6 +576,7 @@ export default function NeighborsList({ processId, clientName, processNumber, ca
                 <th className="text-left p-2 font-medium">Posição</th>
                 <th className="text-left p-2 font-medium">Proprietário</th>
                 <th className="text-left p-2 font-medium">Matrícula</th>
+                <th className="text-left p-2 font-medium">CCIR</th>
                 <th className="text-left p-2 font-medium">Telefone</th>
                 <th className="text-left p-2 font-medium">CAR</th>
                 <th className="text-right p-2 font-medium w-20">Ações</th>
@@ -370,6 +588,7 @@ export default function NeighborsList({ processId, clientName, processNumber, ca
                   <td className="p-2 text-xs">{n.positions?.join(', ') || '—'}</td>
                   <td className="p-2">{n.full_name || <span className="text-muted-foreground italic">sem nome</span>}</td>
                   <td className="p-2 text-xs">{n.registration_number || '—'}</td>
+                  <td className="p-2 text-xs">{n.ccir_number || '—'}</td>
                   <td className="p-2 text-xs">{n.phones?.[0]?.number || '—'}</td>
                   <td className="p-2 text-xs font-mono truncate max-w-[180px]" title={n.car_number || ''}>
                     {n.car_number || '—'}
