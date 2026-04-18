@@ -81,11 +81,13 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
   const mapInstance = useRef<L.Map | null>(null);
   const layerGroup = useRef<L.LayerGroup | null>(null);
   const neighborsLayer = useRef<L.LayerGroup | null>(null);
-  // Camada SIGEF — parcelas certificadas pelo INCRA. Carregada por BBOX só quando
-  // o usuário ativa o overlay (via controle do Leaflet) E o zoom está ≥ 12.
-  const sigefLayer = useRef<L.LayerGroup | null>(null);
-  const sigefActive = useRef<boolean>(false);
-  const sigefFetchToken = useRef<number>(0);
+  // Camadas SIGEF — uma WMS por UF (servidas pelo proxy sigef-incra-proxy).
+  // O usuário ativa/desativa via controle de camadas; rastreamos quais UFs
+  // estão ligadas para decidir se o clique deve consultar GetFeatureInfo.
+  const sigefWmsByUFRef = useRef<Map<string, L.TileLayer.WMS> | null>(null);
+  const sigefActiveUFs = useRef<Set<SigefUF>>(new Set());
+  const sigefInfoLayer = useRef<L.LayerGroup | null>(null);
+  const sigefIdentifyToken = useRef<number>(0);
   const [coords, setCoords] = useState(initialData?.coordinates_text ?? '');
   const [carInput, setCarInput] = useState(carNumber ?? '');
   const [loadingCar, setLoadingCar] = useState(false);
