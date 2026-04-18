@@ -353,58 +353,75 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     onChange(dataRef.current);
   };
 
-  // Carrega parcelas SIGEF dentro do BBOX visível atual. Só roda em zoom ≥ 12 —
-  // abaixo disso a query devolveria milhares de features e travaria o mapa.
-  // Cada chamada incrementa um token; respostas tardias de chamadas antigas são
-  // descartadas (evita race quando o usuário arrasta rápido).
-  const loadSigefForCurrentBounds = async () => {
+  // Identifica a parcela SIGEF no ponto clicado, via WMS GetFeatureInfo no proxy.
+  // Roda em paralelo para todas as UFs SIGEF que o usuário deixou ativas — na
+  // prática só 1 ou 2 estão ligadas, então o custo é baixo. A primeira UF que
+  // retornar uma feature válida ganha; as demais são descartadas.
+  const identifySigefAtPoint = async (lat: number, lng: number) => {
     const map = mapInstance.current;
-    const lg = sigefLayer.current;
-    if (!map || !lg) return;
-    if (map.getZoom() < 12) {
-      lg.clearLayers();
-      setSigefStatus('zoomout');
-      setSigefCount(0);
-      return;
-    }
-    const b = map.getBounds();
-    const token = ++sigefFetchToken.current;
-    setSigefStatus('loading');
-    const fc = await fetchSigefByBBox(b.getWest(), b.getSouth(), b.getEast(), b.getNorth(), 200);
-    // Resposta antiga? descarta.
-    if (token !== sigefFetchToken.current) return;
-    if (!fc) {
-      setSigefStatus('error');
-      return;
-    }
+    const lg = sigefInfoLayer.current;
+    if (!map || !lg || sigefActiveUFs.current.size === 0) return;
+    const token = ++sigefIdentifyToken.current;
+
+    // Monta um BBOX 1×1 pixel ao redor do ponto — o GetFeatureInfo precisa de
+    // um BBOX coerente com WIDTH/HEIGHT/X/Y para o MapServer interpretar.
+    const point = map.latLngToContainerPoint([lat, lng]);
+    const sw = map.containerPointToLatLng([point.x - 1, point.y + 1]);
+    const ne = map.containerPointToLatLng([point.x + 1, point.y - 1]);
+    const bbox = `${sw.lng},${sw.lat},${ne.lng},${ne.lat}`;
+
+    const tryUF = async (uf: SigefUF): Promise<{ uf: SigefUF; html: string } | null> => {
+      const params = new URLSearchParams({
+        SERVICE: 'WMS',
+        VERSION: '1.1.1',
+        REQUEST: 'GetFeatureInfo',
+        LAYERS: sigefLayerForUF(uf),
+        QUERY_LAYERS: sigefLayerForUF(uf),
+        SRS: 'EPSG:4326',
+        BBOX: bbox,
+        WIDTH: '3',
+        HEIGHT: '3',
+        X: '1',
+        Y: '1',
+        INFO_FORMAT: 'text/html',
+        FEATURE_COUNT: '1',
+      });
+      try {
+        const resp = await fetch(`${SIGEF_PROXY_WMS}?${params.toString()}`);
+        if (!resp.ok) return null;
+        const html = await resp.text();
+        return parseSigefInfoHtml(html) ? { uf, html } : null;
+      } catch {
+        return null;
+      }
+    };
+
+    const results = await Promise.all([...sigefActiveUFs.current].map(tryUF));
+    if (token !== sigefIdentifyToken.current) return; // stale
+    const hit = results.find(r => r !== null) as { uf: SigefUF; html: string } | undefined;
+    if (!hit) return;
+
+    const info = parseSigefInfoHtml(hit.html);
+    if (!info) return;
+
     lg.clearLayers();
-    const features = fc.features ?? [];
-    L.geoJSON(fc, {
-      style: {
-        color: 'hsl(28,90%,45%)',
-        weight: 1.5,
-        fillColor: 'hsl(28,90%,55%)',
-        fillOpacity: 0.18,
-      },
-      onEachFeature: (feat, layer) => {
-        const p = parseSigefProperties((feat.properties ?? {}) as Record<string, unknown>);
-        const html = `
-          <div class="text-xs space-y-1.5" style="min-width:240px">
-            <div class="font-semibold" style="color:hsl(28,90%,40%)">Parcela SIGEF (INCRA)</div>
-            <div><span class="text-muted-foreground">Nome:</span> ${p.nome_area || '—'}</div>
-            <div><span class="text-muted-foreground">Situação:</span> ${p.situacao || '—'}</div>
-            ${p.matricula ? `<div><span class="text-muted-foreground">Matrícula:</span> ${p.matricula}</div>` : ''}
-            ${p.codigo_imovel ? `<div><span class="text-muted-foreground">Cód. imóvel:</span> <span class="font-mono">${p.codigo_imovel}</span></div>` : ''}
-            ${p.responsavel_tecnico ? `<div><span class="text-muted-foreground">Resp. técnico:</span> ${p.responsavel_tecnico}</div>` : ''}
-            ${p.numero_art ? `<div><span class="text-muted-foreground">ART:</span> ${p.numero_art}</div>` : ''}
-            <div><span class="text-muted-foreground">Município:</span> ${p.municipio}${p.uf ? '/' + p.uf : ''}</div>
-            <div class="pt-1 text-[11px] text-muted-foreground italic">Cód. parcela: ${p.codigo_parcela}</div>
-          </div>`;
-        layer.bindPopup(html);
-      },
-    }).addTo(lg);
-    setSigefCount(features.length);
-    setSigefStatus(features.length > 0 ? 'done' : 'empty');
+    const html = `
+      <div class="text-xs space-y-1.5" style="min-width:260px">
+        <div class="font-semibold" style="color:hsl(28,90%,40%)">Parcela SIGEF (INCRA) — ${hit.uf}</div>
+        ${info.nome_area ? `<div><span class="text-muted-foreground">Nome:</span> ${info.nome_area}</div>` : ''}
+        ${info.situacao ? `<div><span class="text-muted-foreground">Situação:</span> ${info.situacao}</div>` : ''}
+        ${info.status ? `<div><span class="text-muted-foreground">Status:</span> ${info.status}</div>` : ''}
+        ${info.matricula ? `<div><span class="text-muted-foreground">Matrícula:</span> ${info.matricula}</div>` : ''}
+        ${info.codigo_imovel ? `<div><span class="text-muted-foreground">Cód. imóvel:</span> <span class="font-mono">${info.codigo_imovel}</span></div>` : ''}
+        ${info.rt ? `<div><span class="text-muted-foreground">Resp. técnico:</span> ${info.rt}</div>` : ''}
+        ${info.art ? `<div><span class="text-muted-foreground">ART:</span> ${info.art}</div>` : ''}
+        ${info.data_aprovacao ? `<div><span class="text-muted-foreground">Aprovação:</span> ${info.data_aprovacao}</div>` : ''}
+        ${info.parcela_codigo ? `<div class="pt-1 text-[11px] text-muted-foreground italic">Cód. parcela: ${info.parcela_codigo}</div>` : ''}
+      </div>`;
+    L.popup({ closeButton: true, autoPan: true })
+      .setLatLng([lat, lng])
+      .setContent(html)
+      .openOn(map);
   };
 
   const renderGeometry = (d: MapData) => {
