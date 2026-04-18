@@ -322,7 +322,22 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
           result.feature.geometry,
           result.feature.cod_imovel,
         );
-        if (neighbors) renderNeighbors(neighbors, result.feature.cod_imovel);
+        if (neighbors) {
+          renderNeighbors(neighbors, result.feature.cod_imovel);
+          // Notifica o consumidor com a lista enxuta dos confrontantes detectados.
+          if (onNeighborsDetected) {
+            const list = (neighbors.features ?? [])
+              .map(f => f.properties as any)
+              .filter(p => p?.cod_imovel && p.cod_imovel !== result.feature.cod_imovel)
+              .map(p => ({
+                car: String(p.cod_imovel),
+                area: Number(p.area ?? 0),
+                municipio: String(p.municipio ?? ''),
+                uf: String(p.uf ?? result.feature.uf),
+              }));
+            onNeighborsDetected(list);
+          }
+        }
       } catch {
         /* ignore neighbor errors */
       }
