@@ -419,7 +419,25 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     }
   };
 
-  const handleApplyCoordinates = () => {
+  // Mantém o ref de identifyAtPoint atualizado para o listener de click
+  // (registrado uma vez no init do mapa).
+  useEffect(() => {
+    identifyRef.current = identifyAtPoint;
+  });
+
+  // Auto-carregar o polígono SICAR quando o processo já tem CAR vinculado
+  // e o mapa ainda não exibe geometria. Evita re-busca em re-renders.
+  useEffect(() => {
+    if (!carNumber) return;
+    if (dataRef.current.geojson) return;
+    if (loadedCarsRef.current.has(carNumber)) return;
+    loadedCarsRef.current.add(carNumber);
+    setCarInput(carNumber);
+    loadCar(carNumber);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [carNumber]);
+
+
     try {
       const points = coords
         .split(/\n|;/)
