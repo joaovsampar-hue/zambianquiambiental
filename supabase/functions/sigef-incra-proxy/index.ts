@@ -172,11 +172,4 @@ Deno.serve(async (req) => {
     );
   }
 });
-    const msg = e instanceof Error ? e.message : 'Unknown error';
-    console.error('[sigef-incra-proxy] upstream error', upstream.url, msg);
-    return new Response(
-      JSON.stringify({ error: 'Upstream INCRA timeout/erro', detail: msg }),
-      { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-    );
-  }
-});
+
