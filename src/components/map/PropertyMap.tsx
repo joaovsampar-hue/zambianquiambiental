@@ -337,8 +337,8 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     const sanitized = sanitizeCar(car);
     const isRegistered = registeredNeighborsRef.current.has(sanitized);
     if (isRegistered) {
-      // Verde alinhado com o tema do app (hsl(152,55%,28%)).
-      return { color: 'hsl(152,55%,28%)', weight: 2, fillColor: 'hsl(152,55%,40%)', fillOpacity: 0.35 };
+      // Cinza neutro pra distinguir do verde do imóvel principal (cliente).
+      return { color: 'hsl(0,0%,40%)', weight: 2, fillColor: 'hsl(0,0%,55%)', fillOpacity: 0.35 };
     }
     const isSelected = selectedNeighborsRef.current.has(sanitized);
     return isSelected
