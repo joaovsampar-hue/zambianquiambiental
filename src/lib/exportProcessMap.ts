@@ -12,11 +12,111 @@
 // - Painel lateral idêntico ao modelo Zambianqui: logo, título, datum, escala
 //   gráfica, legenda, assinatura.
 
-import { toPng } from 'html-to-image';
 import jsPDF from 'jspdf';
 import L from 'leaflet';
-import bboxClip from '@turf/bbox-clip';
 import { embedInterFont } from './pdfFonts';
+
+// ===== Captura do basemap em canvas próprio =====
+// html-to-image falha quando algum tile não devolve cabeçalho CORS, taintando
+// o canvas. Em vez disso, percorremos os L.TileLayer ativos e baixamos cada
+// tile via fetch (com fallback para <img> sem CORS quando o servidor não
+// libera). O resultado é um PNG sempre válido.
+
+interface BasemapCaptureResult {
+  dataUrl: string | null;
+  width: number;  // largura em CSS px do container DOM
+  height: number; // altura em CSS px do container DOM
+}
+
+async function loadImageWithFallback(url: string): Promise<HTMLImageElement | null> {
+  // Tenta com crossOrigin primeiro (necessário para drawImage sem taint).
+  const tryLoad = (crossOrigin: string | null) =>
+    new Promise<HTMLImageElement | null>(resolve => {
+      const img = new Image();
+      if (crossOrigin) img.crossOrigin = crossOrigin;
+      img.onload = () => resolve(img);
+      img.onerror = () => resolve(null);
+      img.src = url;
+    });
+  let img = await tryLoad('anonymous');
+  if (img) return img;
+  // Fallback sem CORS — vai funcionar mas o canvas fica tainted.
+  img = await tryLoad(null);
+  return img;
+}
+
+async function captureBasemap(map: L.Map, container: HTMLElement): Promise<BasemapCaptureResult> {
+  const rect = container.getBoundingClientRect();
+  const W = Math.round(rect.width);
+  const H = Math.round(rect.height);
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return { dataUrl: null, width: W, height: H };
+  ctx.scale(dpr, dpr);
+  ctx.fillStyle = '#e8e8e8';
+  ctx.fillRect(0, 0, W, H);
+
+  // Coleta os TileLayers ativos (basemap), ignorando WMS overlays.
+  const tileLayers: L.TileLayer[] = [];
+  map.eachLayer(layer => {
+    if (layer instanceof L.TileLayer && !(layer instanceof L.TileLayer.WMS)) {
+      tileLayers.push(layer);
+    }
+  });
+  if (tileLayers.length === 0) return { dataUrl: null, width: W, height: H };
+
+  const zoom = map.getZoom();
+  const bounds = map.getPixelBounds();
+  const tileSize = 256;
+  const min = bounds.min!;
+  const max = bounds.max!;
+  const tMinX = Math.floor(min.x / tileSize);
+  const tMinY = Math.floor(min.y / tileSize);
+  const tMaxX = Math.floor(max.x / tileSize);
+  const tMaxY = Math.floor(max.y / tileSize);
+  const originContainer = map.containerPointToLayerPoint([0, 0]);
+  // pixel da origem do container no sistema de pixels do mapa
+  const mapPaneOriginPixel = map.project(map.getBounds().getNorthWest(), zoom);
+
+  for (const layer of tileLayers) {
+    const anyLayer = layer as any;
+    const getTileUrl: ((coords: any) => string) | undefined = anyLayer.getTileUrl?.bind(anyLayer);
+    if (!getTileUrl) continue;
+
+    const tilePromises: Promise<{ img: HTMLImageElement | null; x: number; y: number }>[] = [];
+    for (let x = tMinX; x <= tMaxX; x++) {
+      for (let y = tMinY; y <= tMaxY; y++) {
+        const url = getTileUrl({ x, y, z: zoom });
+        tilePromises.push(loadImageWithFallback(url).then(img => ({ img, x, y })));
+      }
+    }
+    const tiles = await Promise.all(tilePromises);
+    for (const { img, x, y } of tiles) {
+      if (!img) continue;
+      // Posição do canto superior esquerdo do tile no container DOM
+      const tileWorldX = x * tileSize;
+      const tileWorldY = y * tileSize;
+      const px = tileWorldX - mapPaneOriginPixel.x;
+      const py = tileWorldY - mapPaneOriginPixel.y;
+      try {
+        ctx.drawImage(img, px, py, tileSize, tileSize);
+      } catch {
+        /* tainted draw — ignore */
+      }
+    }
+  }
+
+  try {
+    return { dataUrl: canvas.toDataURL('image/jpeg', 0.85), width: W, height: H };
+  } catch (err) {
+    console.warn('[captureBasemap] canvas tainted, returning null', err);
+    return { dataUrl: null, width: W, height: H };
+  }
+}
 
 export interface ExportMapOptions {
   mapContainer: HTMLElement;
