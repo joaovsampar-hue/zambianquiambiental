@@ -111,11 +111,13 @@ export async function fetchCarPolygon(car: string): Promise<CarFetchResult | Car
 
 /**
  * Converte uma geometria GeoJSON (Polygon/MultiPolygon) para WKT.
- * Necessário para usar operadores espaciais (TOUCHES/INTERSECTS) no CQL_FILTER do GeoServer.
+ *
+ * IMPORTANTE: WFS 2.0 + EPSG:4326 (sem CRS:84) usa **ordem lat lng** em geometrias
+ * literais do CQL_FILTER. GeoJSON é sempre lng/lat — então invertemos aqui.
  */
 function geometryToWkt(geom: GeoJSON.Polygon | GeoJSON.MultiPolygon): string {
   const ring = (r: GeoJSON.Position[]) =>
-    '(' + r.map(([lng, lat]) => `${lng} ${lat}`).join(', ') + ')';
+    '(' + r.map(([lng, lat]) => `${lat} ${lng}`).join(', ') + ')';
   const poly = (p: GeoJSON.Position[][]) => '(' + p.map(ring).join(', ') + ')';
   if (geom.type === 'Polygon') return `POLYGON ${poly(geom.coordinates)}`;
   return `MULTIPOLYGON (${geom.coordinates.map(poly).join(', ')})`;
@@ -166,7 +168,8 @@ export async function fetchFeatureAtPoint(
   lat: number,
   lng: number,
 ): Promise<CarFeature | null> {
-  const cql = `INTERSECTS(geo_area_imovel, POINT(${lng} ${lat}))`;
+  // WFS 2.0 + EPSG:4326 → POINT(lat lng), não (lng lat). Confirmado via teste no GeoServer SICAR.
+  const cql = `INTERSECTS(geo_area_imovel, POINT(${lat} ${lng}))`;
   const params = new URLSearchParams({
     service: 'WFS',
     version: '2.0.0',
