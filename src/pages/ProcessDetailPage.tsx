@@ -109,6 +109,18 @@ export default function ProcessDetailPage() {
     () => new Set(registeredCars.map(c => sanitizeCar(c))),
     [registeredCars],
   );
+  const registeredKey = Array.from(registeredSet).sort().join('|');
+
+  // Reseta a seleção padrão sempre que detectados ou cadastrados mudam:
+  // todos os pendentes ficam marcados; os já cadastrados, fora.
+  useEffect(() => {
+    const next = new Set<string>();
+    for (const n of detected) {
+      if (!registeredSet.has(n.car)) next.add(n.car);
+    }
+    setSelectedNeighbors(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detectedKey, registeredKey]);
 
   // Insert em lote dos vizinhos selecionados pelo usuário no painel.
   const bulkInsertNeighbors = useMutation({
