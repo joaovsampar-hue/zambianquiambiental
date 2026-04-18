@@ -182,11 +182,13 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
       }
     });
 
-    // ===== OVERLAYS SICAR (uma camada WMS por UF, via Cloudflare Worker) =====
-    // O usuário ativa só a UF que está trabalhando — evita carregar tiles desnecessários.
-    // GeoServer SICAR usa WMS 1.3.0 + EPSG:4326 (ordem lat/lng); o Leaflet trata isso
-    // automaticamente quando passamos `version: '1.3.0'`.
+    // ===== OVERLAY SICAR (todas as UFs num único toggle) =====
+    // Antes tínhamos um item por UF na legenda — virou ruído visual com 27 entradas.
+    // Agora é um único `LayerGroup` que agrega WMS de todas as UFs; quando o usuário
+    // ativa "SICAR (todas as UFs)", todas as camadas entram juntas. O servidor só
+    // entrega tiles para o bbox visível, então não há custo extra de carregar todas.
     const overlays: Record<string, L.Layer> = {};
+    const sicarSubLayers: L.TileLayer.WMS[] = [];
     SICAR_UFS.forEach((uf) => {
       const wms = L.tileLayer.wms(SICAR_WMS, {
         layers: sicarLayerForUF(uf),
@@ -197,9 +199,7 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
         attribution: 'SICAR/SFB',
         opacity: 0.55,
       } as L.WMSOptions);
-      // Toast amigável quando o IBAMA está fora
       wms.on('tileerror', () => {
-        // Evita spam — usa flag por instância
         const w = wms as L.TileLayer & { __notified?: boolean };
         if (w.__notified) return;
         w.__notified = true;
@@ -209,15 +209,16 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
           variant: 'destructive',
         });
       });
-      overlays[`SICAR — ${uf}`] = wms;
+      sicarSubLayers.push(wms);
     });
+    const sicarGroup = L.layerGroup(sicarSubLayers);
+    overlays['SICAR (todas as UFs)'] = sicarGroup;
 
-    // ===== OVERLAYS SIGEF (parcelas certificadas pelo INCRA, via Acervo Fundiário) =====
-    // Tile WMS por UF, servido pela edge function `sigef-incra-proxy` (CORS+HTTPS).
-    // Cor laranja distingue visualmente das camadas SICAR (azul/verde) — o estilo
-    // real do polígono vem do MapServer do INCRA, então aplicamos opacidade só.
-    // GetFeatureInfo on-click traz matrícula/RT/ART e abre num popup customizado.
+    // ===== OVERLAY SIGEF (todas as UFs num único toggle) =====
+    // Mesma lógica do SICAR — um único item na legenda agrega todas as 27 UFs do
+    // acervo fundiário do INCRA. Mantemos `sigefWmsByUFRef` para casos pontuais.
     const sigefWmsByUF = new Map<string, L.TileLayer.WMS>();
+    const sigefSubLayers: L.TileLayer.WMS[] = [];
     SIGEF_UFS.forEach((uf) => {
       const wms = L.tileLayer.wms(SIGEF_PROXY_WMS, {
         layers: sigefLayerForUF(uf),
@@ -238,9 +239,11 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
           variant: 'destructive',
         });
       });
-      overlays[`SIGEF — ${uf}`] = wms;
       sigefWmsByUF.set(uf, wms);
+      sigefSubLayers.push(wms);
     });
+    const sigefGroup = L.layerGroup(sigefSubLayers);
+    overlays['SIGEF (todas as UFs)'] = sigefGroup;
     sigefWmsByUFRef.current = sigefWmsByUF;
 
     L.control
@@ -252,16 +255,16 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     // Camada de popups dos cliques SIGEF — separada para limpar facilmente.
     sigefInfoLayer.current = L.layerGroup().addTo(map);
 
-    // Rastreia quais camadas SIGEF estão ativas para decidir se vale chamar
-    // GetFeatureInfo no clique (sem nenhuma ativa, é desperdício de request).
+    // Toggle do grupo SIGEF marca/desmarca TODAS as UFs como ativas para a lógica
+    // de GetFeatureInfo (que só consulta UFs ativas).
     map.on('overlayadd', (e: L.LayersControlEvent) => {
-      const uf = (e.name.match(/^SIGEF — ([A-Z]{2})$/)?.[1]) as SigefUF | undefined;
-      if (uf) sigefActiveUFs.current.add(uf);
+      if (e.name === 'SIGEF (todas as UFs)') {
+        SIGEF_UFS.forEach((uf) => sigefActiveUFs.current.add(uf));
+      }
     });
     map.on('overlayremove', (e: L.LayersControlEvent) => {
-      const uf = (e.name.match(/^SIGEF — ([A-Z]{2})$/)?.[1]) as SigefUF | undefined;
-      if (uf) {
-        sigefActiveUFs.current.delete(uf);
+      if (e.name === 'SIGEF (todas as UFs)') {
+        sigefActiveUFs.current.clear();
         sigefInfoLayer.current?.clearLayers();
       }
     });
