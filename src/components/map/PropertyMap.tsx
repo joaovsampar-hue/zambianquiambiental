@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Upload, MapPin, Trash2, Search, Loader2 } from 'lucide-react';
+import { Upload, MapPin, Trash2, Search, Loader2, Maximize2, Minimize2 } from 'lucide-react';
 import { UF_CENTERS } from '@/lib/processStages';
 import {
   SICAR_UFS,
