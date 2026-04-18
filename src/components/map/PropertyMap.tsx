@@ -86,6 +86,9 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
   const [clickedCoord, setClickedCoord] = useState<{ lat: number; lng: number } | null>(null);
   const [identifying, setIdentifying] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+  // Status da consulta de confrontantes ao SICAR — alimenta o badge de status.
+  const [neighborStatus, setNeighborStatus] = useState<'idle' | 'loading' | 'done' | 'empty' | 'error'>('idle');
+  const [neighborCount, setNeighborCount] = useState(0);
   const dataRef = useRef<MapData>({
     geojson: initialData?.geojson ?? null,
     reference_lat: initialData?.reference_lat ?? null,
