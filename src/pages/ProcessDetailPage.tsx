@@ -24,6 +24,8 @@ export default function ProcessDetailPage() {
   const qc = useQueryClient();
   const [detected, setDetected] = useState<DetectedNeighbor[]>([]);
   const [selectedNeighbors, setSelectedNeighbors] = useState<Set<string>>(new Set());
+  const mapRef = useRef<PropertyMapHandle>(null);
+  const [exporting, setExporting] = useState(false);
 
   // Sempre que a lista de detectados muda, marca por padrão somente os pendentes.
   // Usamos chave estável (CARs ordenados) pra evitar render loop.
