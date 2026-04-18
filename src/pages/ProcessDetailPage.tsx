@@ -1,3 +1,4 @@
+import { useMemo, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -9,6 +10,8 @@ import { Button } from '@/components/ui/button';
 import Breadcrumb from '@/components/Breadcrumb';
 import PropertyMap from '@/components/map/PropertyMap';
 import NeighborsList from '@/components/process/NeighborsList';
+import DetectedNeighborsPanel, { type DetectedNeighbor } from '@/components/process/DetectedNeighborsPanel';
+import { sanitizeCar } from '@/lib/sicar';
 import { STAGES, stageLabel, serviceLabel } from '@/lib/processStages';
 import { useToast } from '@/hooks/use-toast';
 import { FileText, MapPin } from 'lucide-react';
