@@ -151,15 +151,6 @@ function clipToViewport(feature: GeoJSON.Feature, map: L.Map): GeoJSON.Feature |
   }
 }
 
-// Desenha um anel (ring) usando moveTo/lineTo absolutos via jsPDF internal API.
-// Evita pdf.lines() que tem bugs com fill+stroke duplicado em rings complexos.
-function drawRingAbsolute(
-  pdf: jsPDF,
-  ringPts: Array<[number, number]>,
-  style: 'F' | 'S' | 'B',
-) {
-  if (ringPts.length < 3) return;
-  // jsPDF expõe métodos internos para path absoluto.
 // Desenha um ring fechado num único path do PDF — fill+stroke em um pass
 // (modo 'B'), garantindo que o último ponto retorne ao primeiro para evitar
 // "faixas" residuais de path aberto.
