@@ -45,6 +45,44 @@ async function loadImageWithFallback(url: string): Promise<HTMLImageElement | nu
   return img;
 }
 
+// Constrói uma URL WMS GetMap para uma sub-região (em pixel-mundo) na projeção
+// EPSG:3857 (Web Mercator) — mesma usada pelo Leaflet por padrão.
+function buildWmsTileUrl(
+  layer: L.TileLayer.WMS,
+  map: L.Map,
+  worldX: number, worldY: number, sizePx: number,
+): string {
+  const zoom = map.getZoom();
+  // Converte pixel-mundo → latlng → web-mercator metros.
+  const nw = map.unproject([worldX, worldY], zoom);
+  const se = map.unproject([worldX + sizePx, worldY + sizePx], zoom);
+  // EPSG:3857 metros (Leaflet expõe via L.CRS.EPSG3857.project)
+  const pNw = L.CRS.EPSG3857.project(nw);
+  const pSe = L.CRS.EPSG3857.project(se);
+  const minX = Math.min(pNw.x, pSe.x);
+  const maxX = Math.max(pNw.x, pSe.x);
+  const minY = Math.min(pNw.y, pSe.y);
+  const maxY = Math.max(pNw.y, pSe.y);
+  const opts = (layer as any).wmsParams as Record<string, any>;
+  const baseUrl = (layer as any)._url as string;
+  const params: Record<string, string> = {
+    SERVICE: 'WMS',
+    REQUEST: 'GetMap',
+    VERSION: opts.version ?? '1.1.1',
+    LAYERS: opts.layers ?? '',
+    STYLES: opts.styles ?? '',
+    FORMAT: opts.format ?? 'image/png',
+    TRANSPARENT: String(opts.transparent ?? true),
+    SRS: 'EPSG:3857',
+    CRS: 'EPSG:3857',
+    BBOX: `${minX},${minY},${maxX},${maxY}`,
+    WIDTH: String(sizePx),
+    HEIGHT: String(sizePx),
+  };
+  const qs = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+  return `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}${qs}`;
+}
+
 async function captureBasemap(map: L.Map, container: HTMLElement): Promise<BasemapCaptureResult> {
   const rect = container.getBoundingClientRect();
   const W = Math.round(rect.width);
@@ -60,59 +98,69 @@ async function captureBasemap(map: L.Map, container: HTMLElement): Promise<Basem
   ctx.fillStyle = '#e8e8e8';
   ctx.fillRect(0, 0, W, H);
 
-  // Coleta os TileLayers ativos (basemap), ignorando WMS overlays.
-  const tileLayers: L.TileLayer[] = [];
+  const zoom = map.getZoom();
+  const tileSize = 256;
+  // Origem em pixel-mundo do canto superior-esquerdo do container DOM. Usar
+  // map.project(unproject([0,0])) garante que o offset corresponde EXATAMENTE
+  // ao que latLngToContainerPoint usa quando projetamos os polígonos depois.
+  const nwLatLng = map.containerPointToLatLng([0, 0]);
+  const seLatLng = map.containerPointToLatLng([W, H]);
+  const nwPx = map.project(nwLatLng, zoom);
+  const sePx = map.project(seLatLng, zoom);
+  const originX = nwPx.x;
+  const originY = nwPx.y;
+  const tMinX = Math.floor(nwPx.x / tileSize);
+  const tMinY = Math.floor(nwPx.y / tileSize);
+  const tMaxX = Math.floor(sePx.x / tileSize);
+  const tMaxY = Math.floor(sePx.y / tileSize);
+
+  // Coleta camadas: basemap (TileLayer não-WMS) + overlays WMS (SIGEF/SICAR).
+  const baseLayers: L.TileLayer[] = [];
+  const wmsLayers: L.TileLayer.WMS[] = [];
   map.eachLayer(layer => {
-    if (layer instanceof L.TileLayer && !(layer instanceof L.TileLayer.WMS)) {
-      tileLayers.push(layer);
+    if (layer instanceof L.TileLayer.WMS) {
+      wmsLayers.push(layer);
+    } else if (layer instanceof L.TileLayer) {
+      baseLayers.push(layer);
     }
   });
-  if (tileLayers.length === 0) return { dataUrl: null, width: W, height: H };
 
-  const zoom = map.getZoom();
-  const bounds = map.getPixelBounds();
-  const tileSize = 256;
-  const min = bounds.min!;
-  const max = bounds.max!;
-  const tMinX = Math.floor(min.x / tileSize);
-  const tMinY = Math.floor(min.y / tileSize);
-  const tMaxX = Math.floor(max.x / tileSize);
-  const tMaxY = Math.floor(max.y / tileSize);
-  // bounds.min é o pixel-mundo (no zoom atual) do canto superior esquerdo do
-  // viewport. Subtraímos para ter coordenadas relativas ao container.
-  const originX = min.x;
-  const originY = min.y;
+  const drawTile = (img: HTMLImageElement, x: number, y: number) => {
+    const px = x * tileSize - originX;
+    const py = y * tileSize - originY;
+    try { ctx.drawImage(img, px, py, tileSize, tileSize); } catch { /* tainted */ }
+  };
 
-  for (const layer of tileLayers) {
-    const anyLayer = layer as any;
-    const getTileUrl: ((coords: any) => string) | undefined = anyLayer.getTileUrl?.bind(anyLayer);
+  // 1) Basemap (XYZ tiles).
+  for (const layer of baseLayers) {
+    const getTileUrl: ((coords: any) => string) | undefined = (layer as any).getTileUrl?.bind(layer);
     if (!getTileUrl) continue;
-
-    const tilePromises: Promise<{ img: HTMLImageElement | null; x: number; y: number }>[] = [];
+    const promises: Promise<{ img: HTMLImageElement | null; x: number; y: number }>[] = [];
     for (let x = tMinX; x <= tMaxX; x++) {
       for (let y = tMinY; y <= tMaxY; y++) {
         const url = getTileUrl({ x, y, z: zoom });
-        tilePromises.push(loadImageWithFallback(url).then(img => ({ img, x, y })));
+        promises.push(loadImageWithFallback(url).then(img => ({ img, x, y })));
       }
     }
-    const tiles = await Promise.all(tilePromises);
-    for (const { img, x, y } of tiles) {
-      if (!img) continue;
-      // Posição do canto superior esquerdo do tile no container DOM
-      const tileWorldX = x * tileSize;
-      const tileWorldY = y * tileSize;
-      const px = tileWorldX - originX;
-      const py = tileWorldY - originY;
-      try {
-        ctx.drawImage(img, px, py, tileSize, tileSize);
-      } catch {
-        /* tainted draw — ignore */
+    const tiles = await Promise.all(promises);
+    for (const { img, x, y } of tiles) if (img) drawTile(img, x, y);
+  }
+
+  // 2) WMS overlays (SIGEF / SICAR) — mesmo grid de tiles, usando GetMap por bbox.
+  for (const layer of wmsLayers) {
+    const promises: Promise<{ img: HTMLImageElement | null; x: number; y: number }>[] = [];
+    for (let x = tMinX; x <= tMaxX; x++) {
+      for (let y = tMinY; y <= tMaxY; y++) {
+        const url = buildWmsTileUrl(layer, map, x * tileSize, y * tileSize, tileSize);
+        promises.push(loadImageWithFallback(url).then(img => ({ img, x, y })));
       }
     }
+    const tiles = await Promise.all(promises);
+    for (const { img, x, y } of tiles) if (img) drawTile(img, x, y);
   }
 
   try {
-    return { dataUrl: canvas.toDataURL('image/jpeg', 0.85), width: W, height: H };
+    return { dataUrl: canvas.toDataURL('image/jpeg', 0.9), width: W, height: H };
   } catch (err) {
     console.warn('[captureBasemap] canvas tainted, returning null', err);
     return { dataUrl: null, width: W, height: H };
