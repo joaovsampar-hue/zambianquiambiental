@@ -22,7 +22,7 @@ import {
   sanitizeCar,
   type SicarUF,
 } from '@/lib/sicar';
-import { fetchSigefByBBox, parseSigefProperties } from '@/lib/sigef';
+import { SIGEF_PROXY_WMS, SIGEF_UFS, sigefLayerForUF, parseSigefInfoHtml, type SigefUF } from '@/lib/sigefIncra';
 
 // Fix default Leaflet marker icons in bundler
 delete (L.Icon.Default.prototype as any)._getIconUrl;
