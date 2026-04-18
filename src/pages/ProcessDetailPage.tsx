@@ -15,6 +15,7 @@ import { sanitizeCar } from '@/lib/sicar';
 import { STAGES, stageLabel, serviceLabel } from '@/lib/processStages';
 import { useToast } from '@/hooks/use-toast';
 import { exportProcessMap } from '@/lib/exportProcessMap';
+import { loadExportMetadata } from '@/lib/companyMetadata';
 import { FileText, MapPin, Download } from 'lucide-react';
 
 export default function ProcessDetailPage() {
@@ -221,17 +222,21 @@ export default function ProcessDetailPage() {
                   setExporting(true);
                   try {
                     const prop = process.property as any;
-                    const loc = prop?.municipality && prop?.state ? ` — ${prop.municipality}/${prop.state}` : '';
                     const denom = prop?.denomination ?? process.title ?? 'Imóvel';
+                    const loc = prop?.municipality && prop?.state ? ` - ${prop.municipality}/${prop.state}` : '';
+                    const features = handle!.getRenderedFeatures();
+                    const metadata = user ? await loadExportMetadata(user.id) : ({} as any);
                     await exportProcessMap({
                       mapContainer: container,
                       leafletMap: leaflet,
-                      title: `Análise Prévia — ${denom}${loc}`,
+                      mainFeature: features.main,
+                      neighborsFc: features.neighbors,
+                      setOverlayTilesVisible: handle!.setOverlayTilesVisible,
+                      title: `Análise Prévia - ${denom}${loc}`,
                       clientName: process.client?.name,
-                      responsibleName: user?.user_metadata?.full_name,
-                      producedBy: user?.user_metadata?.full_name,
                       areaHa: prop?.total_area_ha ?? undefined,
                       fileName: `mapa-${process.process_number}`,
+                      ...metadata,
                     });
                     toast({ title: 'PDF gerado', description: 'O download começou automaticamente.' });
                   } catch (e: any) {

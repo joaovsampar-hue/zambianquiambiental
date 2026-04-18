@@ -1,6 +1,6 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { LayoutDashboard, Users, PlusCircle, History, Leaf, LogOut, FolderPlus } from 'lucide-react';
+import { LayoutDashboard, Users, PlusCircle, History, Leaf, LogOut, FolderPlus, UserCog, Building2 } from 'lucide-react';
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Processos' },
@@ -8,6 +8,11 @@ const navItems = [
   { to: '/clients', icon: Users, label: 'Clientes' },
   { to: '/new-analysis', icon: PlusCircle, label: 'Análise avulsa' },
   { to: '/history', icon: History, label: 'Histórico' },
+];
+
+const settingsItems = [
+  { to: '/profile', icon: UserCog, label: 'Meu perfil' },
+  { to: '/settings', icon: Building2, label: 'Empresa' },
 ];
 
 export default function AppSidebar() {
@@ -40,6 +45,22 @@ export default function AppSidebar() {
             {item.label}
           </NavLink>
         ))}
+
+        <div className="pt-4 mt-4 border-t border-sidebar-border space-y-1">
+          <p className="px-3 text-[10px] uppercase tracking-wider text-sidebar-foreground/40 font-semibold mb-1">Configurações</p>
+          {settingsItems.map(item => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={({ isActive }) =>
+                `sidebar-item ${isActive ? 'active' : 'text-sidebar-foreground/70'}`
+              }
+            >
+              <item.icon className="w-5 h-5" />
+              {item.label}
+            </NavLink>
+          ))}
+        </div>
       </nav>
 
       <div className="p-3 border-t border-sidebar-border">
