@@ -118,14 +118,27 @@ Quando identificar esse padrão: mantenha o proprietário A (primeiro listado no
 
 Esta regra só se aplica quando os dois são claramente o mesmo casal. Se dois proprietários forem casados com TERCEIROS diferentes (não entre si), ambos devem ser listados normalmente como proprietários separados.
 
-INSTRUÇÃO 10 — PROPRIETÁRIO FALECIDO:
-Se a matrícula contiver qualquer indicação de que um proprietário faleceu — como averbação de óbito, inventário, formal de partilha, espólio, 'de cujus', 'falecido(a)', 'falecimento', certidão de óbito averbada, ou transmissão por herança —, identificar o proprietário afetado e incluir um alerta crítico no array de alertas com o seguinte formato:
-{
-  "severity": "critical",
-  "message": "[FALECIMENTO] O proprietário [NOME] consta como falecido na matrícula. Verificar abertura de inventário, formal de partilha e averbação dos herdeiros antes de dar continuidade ao processo de georreferenciamento."
-}
-Também adicionar ao objeto do proprietário o campo: "situacao": "falecido".
-Se houver herdeiros já averbados na matrícula, listar seus nomes no campo "message" do alerta.`;
+INSTRUÇÃO 10 — VERIFICAÇÃO DE FALECIMENTO APÓS IDENTIFICAR PROPRIETÁRIOS ATUAIS:
+
+Após identificar os proprietários atuais pela Instrução 3, executar obrigatoriamente esta verificação para CADA proprietário identificado antes de retornar o JSON:
+
+PASSO 1 — VARREDURA OBRIGATÓRIA DE ÓBITO:
+Percorrer TODAS as averbações da matrícula do início ao fim, inclusive as mais recentes e as últimas páginas, buscando o nome de cada proprietário atual junto com qualquer das seguintes palavras ou expressões: "falecimento", "falecido", "falecida", "óbito", "ocorreu o falecimento", "certidão de óbito", "de cujus", "espólio de", "por ato de ofício". Esta varredura é obrigatória mesmo que o proprietário tenha sido adquirente em ato recente — um óbito averbado posteriormente cancela a titularidade.
+
+PASSO 2 — SE ENCONTRAR AVERBAÇÃO DE ÓBITO REFERENTE A UM PROPRIETÁRIO ATUAL:
+- Remover completamente esse proprietário do array owners. Ele NÃO deve aparecer como proprietário atual.
+- Identificar a fração do imóvel que pertencia a ele (ex: 3/6, 50%, etc.).
+- Verificar se há formal de partilha, inventário ou novo registro de transmissão posterior ao óbito para essa fração. Se sim, os novos titulares são os proprietários atuais dessa fração — incluí-los em owners.
+- Gerar alerta crítico: { "severity": "critical", "message": "[FALECIMENTO] O proprietário [NOME] consta como falecido na matrícula conforme [NÚMERO DA AVERBAÇÃO]. Data do falecimento: [DATA SE DISPONÍVEL]. A fração de [X] do imóvel foi afetada." }
+
+PASSO 3 — FRAÇÃO SEM NOVO TITULAR REGISTRADO:
+Se após o óbito não houver inventário ou transmissão registrada para a fração do falecido, gerar segundo alerta crítico: { "severity": "critical", "message": "[ESPÓLIO PENDENTE] A fração de [X] pertencente a [NOME DO FALECIDO] está sem titular registrado. É necessário inventário e averbação dos herdeiros antes do georreferenciamento." }
+
+PASSO 4 — ORDEM DE PRECEDÊNCIA:
+Um ato de óbito averbado SEMPRE tem precedência sobre a titularidade anterior, independentemente de qual ato constituiu a propriedade. A morte extingue a titularidade — o falecido nunca deve aparecer em owners.
+
+EXEMPLO CONCRETO DESTA INSTRUÇÃO:
+Em uma matrícula onde o R.22 atribuiu 3/6 a Aparecida Bottan da Silva e o AV.25 registrou seu falecimento em 22/08/2023: Aparecida NÃO deve constar em owners. Os proprietários atuais de suas frações dependem de inventário posterior. Se não houver inventário registrado, gerar alerta de espólio pendente dos 3/6. Os demais proprietários com frações próprias sem óbito (Silvana 1/6, Vanessa 1/6, Francisco Carlos 1/6) permanecem normalmente em owners.`;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
