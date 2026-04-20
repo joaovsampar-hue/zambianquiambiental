@@ -185,19 +185,7 @@ export default function AnalysisPage() {
     },
   });
 
-  // F2 — Carrega confrontantes para incluir no relatório (Word/PDF).
-  const { data: neighborsForReport = [] } = useQuery({
-    queryKey: ['analysis-neighbors', (analysis as any)?.process_id],
-    enabled: !!(analysis as any)?.process_id,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('process_neighbors')
-        .select('positions, full_name, property_denomination, neighbor_type, car_number, registration_number')
-        .eq('process_id', (analysis as any).process_id);
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
+
 
   const [formData, setFormData] = useState<any>(null);
 
@@ -290,7 +278,7 @@ export default function AnalysisPage() {
               clientName: (analysis as any).property?.client?.name ?? '',
               version: analysis.version,
               createdAt: analysis.created_at,
-              neighbors: neighborsForReport as any,
+              neighbors: formData?.boundaries?.neighbors ?? [],
             };
             exportToWord(d);
           }}>
@@ -304,7 +292,7 @@ export default function AnalysisPage() {
               clientName: (analysis as any).property?.client?.name ?? '',
               version: analysis.version,
               createdAt: analysis.created_at,
-              neighbors: neighborsForReport as any,
+              neighbors: formData?.boundaries?.neighbors ?? [],
             };
             exportToPdf(d);
           }}>

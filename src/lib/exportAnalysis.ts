@@ -8,12 +8,20 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 interface NeighborRow {
-  positions?: string[] | null;
-  full_name?: string | null;
-  property_denomination?: string | null;
-  neighbor_type?: string | null;
-  car_number?: string | null;
+  denomination?: string | null;
   registration_number?: string | null;
+  ccir?: string | null;
+  municipality?: string | null;
+  state?: string | null;
+  car_number?: string | null;
+  owners?: Array<{
+    name?: string;
+    cpf_cnpj?: string;
+    marital_status?: string;
+    marriage_regime?: string;
+    vigencia_lei_divorcio?: string;
+    spouse?: { name?: string };
+  }>;
 }
 
 interface AnalysisData {
@@ -271,7 +279,7 @@ export async function exportToWord(data: AnalysisData) {
     children.push(new Paragraph({ children: [new TextRun({ text: 'Nenhum confrontante cadastrado', italics: true, size: 20, font: 'Arial', color: '888888' })] }));
   } else {
     const headerRow = new TableRow({
-      children: ['Posição', 'Nome / Denominação', 'Tipo', 'CAR', 'Matrícula'].map(h =>
+      children: ['Denominação', 'Proprietário atual', 'Matrícula', 'CCIR', 'Município/UF'].map(h =>
         new TableCell({
           borders: cellBorders,
           shading: { fill: 'E8F5E9', type: ShadingType.CLEAR },
@@ -280,19 +288,24 @@ export async function exportToWord(data: AnalysisData) {
         })
       ),
     });
-    const rows = neighbors.map(n => new TableRow({
-      children: [
-        (n.positions ?? []).join(', ') || '—',
-        n.full_name || n.property_denomination || '—',
-        n.neighbor_type === 'pj' ? 'PJ' : 'PF',
-        n.car_number || '—',
-        n.registration_number || '—',
-      ].map(txt => new TableCell({
-        borders: cellBorders,
-        margins: { top: 50, bottom: 50, left: 80, right: 80 },
-        children: [new Paragraph({ children: [new TextRun({ text: String(txt), size: 18, font: 'Arial' })] })],
-      })),
-    }));
+    const rows = neighbors.map(n => {
+      const owner = (n.owners ?? [])[0];
+      const ownerName = owner?.name || '—';
+      const munuf = [n.municipality, n.state].filter(Boolean).join('/') || '—';
+      return new TableRow({
+        children: [
+          n.denomination || '—',
+          ownerName,
+          n.registration_number || '—',
+          n.ccir || '—',
+          munuf,
+        ].map(txt => new TableCell({
+          borders: cellBorders,
+          margins: { top: 50, bottom: 50, left: 80, right: 80 },
+          children: [new Paragraph({ children: [new TextRun({ text: String(txt), size: 18, font: 'Arial' })] })],
+        })),
+      });
+    });
     children.push(new Table({
       width: { size: 9360, type: WidthType.DXA },
       rows: [headerRow, ...rows],
@@ -538,14 +551,19 @@ export function exportToPdf(data: AnalysisData) {
   } else {
     autoTable(doc, {
       startY: y,
-      head: [['Posição', 'Nome / Denominação', 'Tipo', 'CAR', 'Matrícula']],
-      body: neighbors.map(n => [
-        (n.positions ?? []).join(', ') || '—',
-        n.full_name || n.property_denomination || '—',
-        n.neighbor_type === 'pj' ? 'PJ' : 'PF',
-        n.car_number || '—',
-        n.registration_number || '—',
-      ]),
+      head: [['Denominação', 'Proprietário atual', 'Matrícula', 'CCIR', 'Município/UF']],
+      body: neighbors.map(n => {
+        const owner = (n.owners ?? [])[0];
+        const ownerName = owner?.name || '—';
+        const munuf = [n.municipality, n.state].filter(Boolean).join('/') || '—';
+        return [
+          n.denomination || '—',
+          ownerName,
+          n.registration_number || '—',
+          n.ccir || '—',
+          munuf,
+        ];
+      }),
       theme: 'grid',
       styles: { fontSize: 8, cellPadding: 2, overflow: 'linebreak' },
       headStyles: { fillColor: [232, 245, 233], textColor: [30, 94, 50], fontStyle: 'bold' },
