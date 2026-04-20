@@ -382,6 +382,7 @@ export default function AnalysisPage() {
                       updateField('owners', owners);
                     };
                     const isMarried = (owner?.marital_status ?? '').toString().toLowerCase().startsWith('cas');
+                    const showSpouseSection = isMarried && !!(owner?.spouse?.name || owner?.spouse?.cpf || owner?.spouse?.rg);
                     const fonte = owner?.fonte_dados_documentais;
                     const verifTit = owner?.verificar_titularidade;
                     return (
@@ -422,7 +423,7 @@ export default function AnalysisPage() {
                             <FieldWithAiIndicator label="Endereço" value={owner?.address} onChange={v => updateOwner({ address: v })} multiline />
                           </div>
                         </div>
-                        {isMarried && (
+                        {showSpouseSection && (
                           <div className="pl-3 border-l-2 border-primary/20 space-y-3">
                             <p className="text-xs font-semibold text-muted-foreground">Cônjuge</p>
                             <div className="grid grid-cols-2 gap-3">
