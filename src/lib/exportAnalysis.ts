@@ -151,7 +151,7 @@ function safeText(v: any): string {
   if (v == null) return '—';
   if (typeof v === 'string') return v || '—';
   if (typeof v === 'number' || typeof v === 'boolean') return String(v);
-  // Não despeja [object Object] — serializa de forma legível.
+  if (Array.isArray(v)) return v.length === 0 ? '—' : v.map((i: any) => safeText(i)).join('; ');
   try { return JSON.stringify(v, null, 2); } catch { return String(v); }
 }
 
@@ -188,7 +188,9 @@ function extractLimits(roteiro: string): Array<{ tipo: string; nome: string }> {
       if (LIMIT_NON_NAMES.has(firstWord)) continue;
       if (raw.length < 3 || raw.length > 60) continue;
       // Limita ao nome principal (até encontrar preposição de direção)
-      const nome = raw.split(/\s+(?:no\s+rumo|em\s+linha|na\s+dist|até\s+|conf)/i)[0].trim();
+      const nome = raw
+        .split(/\s+(?:e\s+segue|e\s+daí|e\s+segue\s+em|no\s+rumo|em\s+linha|na\s+dist|até\s+|conf|,\s*e\s+)/i)[0]
+        .trim();
       const key = `${tipo}:${nome.toLowerCase()}`;
       if (!seen.has(key)) {
         seen.add(key);
