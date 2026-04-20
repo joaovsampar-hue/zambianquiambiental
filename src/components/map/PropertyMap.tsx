@@ -558,7 +558,8 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
 
   // Estilo aplicado a um polígono vizinho conforme estado atual:
   //   - VERDE  → já cadastrado como confrontante (precedência máxima)
-  //   - AZUL FORTE → selecionado no painel pra cadastro em lote
+  //   - AMARELO/LARANJA TRACEJADO → selecionado no painel pra cadastro em lote
+  //     (cor distinta do azul base pra dar feedback visual claro de seleção)
   //   - AZUL CLARO → detectado mas não selecionado
   // ITEM 6 — Camada 3 (Confrontantes): azul #378ADD com fill opacity 0.25,
   // stroke #185FA5 1.5px com opacidade 0.9. Já cadastrados ganham destaque verde.
@@ -570,7 +571,8 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     }
     const isSelected = selectedNeighborsRef.current.has(sanitized);
     return isSelected
-      ? { color: '#185FA5', weight: 2.5, fillColor: '#378ADD', fillOpacity: 0.45, opacity: 1 }
+      // Selecionado — amarelo vibrante, stroke escuro tracejado pra contrastar com o azul base
+      ? { color: '#B45309', weight: 3, fillColor: '#F59E0B', fillOpacity: 0.55, opacity: 1, dashArray: '4 2' }
       : { color: '#185FA5', weight: 1.5, fillColor: '#378ADD', fillOpacity: 0.25, opacity: 0.9 };
   };
 
