@@ -324,6 +324,7 @@ export default function AnalysisPage() {
                       <div key={i} className="p-4 border border-border rounded-lg space-y-3">
                         <div className="flex items-center gap-2 flex-wrap">
                           <p className="text-sm font-semibold text-primary">Proprietário {i + 1}</p>
+                          <VigenciaLeiBadge value={owner?.vigencia_lei_divorcio} />
                           {fonte === 'averbacao_anterior' && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-info/10 text-info border border-info/30">
                               dados de averbação anterior
