@@ -311,23 +311,15 @@ export default function ProcessDetailPage() {
                 // Normaliza os CARs pra bater com o registeredSet (sanitizeCar = uppercase + trim).
                 setDetected(list.map(n => ({ ...n, car: sanitizeCar(n.car) })));
               }}
-              onNeighborPick={async (info) => {
-                // Inserção rápida na tabela de confrontantes — sem abrir formulário.
-                const { error } = await supabase.from('process_neighbors').insert({
-                  process_id: id!,
-                  created_by: user!.id,
-                  car_number: info.car,
-                  property_denomination: `Imóvel rural — ${info.municipio}/${info.uf} (${info.area.toFixed(2)} ha)`,
-                  phones: [] as any,
-                  positions: [],
-                } as any);
-                if (error) {
-                  toast({ title: 'Erro', description: error.message, variant: 'destructive' });
-                  return;
-                }
-                qc.invalidateQueries({ queryKey: ['neighbors', id] });
-                qc.invalidateQueries({ queryKey: ['neighbors-cars', id] });
-                toast({ title: 'Confrontante listado', description: info.car });
+              onNeighborPick={(info) => {
+                // Adiciona ao painel de seleção acima do mapa (sem inserir no banco ainda).
+                // O usuário confirma o cadastro pelo botão no DetectedNeighborsPanel.
+                const sanitized = sanitizeCar(info.car);
+                setDetected(prev => {
+                  // Evita duplicatas — se já estiver na lista, não adiciona novamente.
+                  if (prev.some(d => d.car === sanitized)) return prev;
+                  return [...prev, { ...info, car: sanitized }];
+                });
               }}
             />
           </CardContent></Card>

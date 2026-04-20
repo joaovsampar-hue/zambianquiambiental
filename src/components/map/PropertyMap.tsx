@@ -252,13 +252,14 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     sigefGroupRef.current = sigefGroup;
 
     layerGroup.current = L.layerGroup().addTo(map); // imóvel principal — sempre visível
-    neighborsLayer.current = neighborsGroup;        // confrontantes — começa desligado (item 5)
-    sicarGroup.addTo(map);                          // SICAR — único overlay ativo por padrão
+    neighborsLayer.current = neighborsGroup;
+    neighborsGroup.addTo(map); // confrontantes cadastrados ficam visíveis por padrão
+    // sicarGroup removido do init automático
 
     const overlays: Record<string, L.Layer> = {
       'SICAR': sicarGroup,
       'SIGEF/INCRA': sigefGroup,
-      'Confrontantes detectados': neighborsGroup,
+      'Confrontantes cadastrados': neighborsGroup,
     };
 
     L.control
@@ -481,9 +482,9 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     lg.clearLayers();
 
     if (d.geojson) {
-      // ITEM 6 — Camada 2 (Imóvel do cliente): verde #1D9E75, sem preenchimento, stroke 2.5px.
+      // ITEM 6 — Camada 2 (Imóvel do cliente): verde #1D9E75, com preenchimento 50%, stroke 2.5px.
       const gj = L.geoJSON(d.geojson, {
-        style: { color: '#1D9E75', weight: 2.5, opacity: 1, fillOpacity: 0 },
+        style: { color: '#1D9E75', weight: 2.5, opacity: 1, fillColor: '#1D9E75', fillOpacity: 0.5 },
       });
       // Tooltip com denominação + área (item 6).
       gj.eachLayer((layer: any) => {
@@ -520,6 +521,51 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedNeighbors, registeredNeighbors]);
 
+  useEffect(() => {
+    const map = mapInstance.current;
+    const lg = neighborsLayer.current;
+    if (!map || !lg) return;
+
+    if (!registeredNeighbors || registeredNeighbors.size === 0) {
+      lg.clearLayers();
+      neighborLayersRef.current.clear();
+      neighborsFcRef.current = null;
+      return;
+    }
+
+    const fetchAndRender = async () => {
+      const features: GeoJSON.Feature[] = [];
+      const mainCar = sanitizeCar(
+        (dataRef.current.geojson as any)?.properties?.cod_imovel ?? ''
+      );
+      for (const car of registeredNeighbors) {
+        if (sanitizeCar(car) === mainCar) continue;
+        try {
+          const result = await fetchCarPolygon(car);
+          if (result.ok !== false) {
+            features.push({
+              type: 'Feature',
+              geometry: result.feature.geometry,
+              properties: {
+                cod_imovel: result.feature.cod_imovel,
+                area: result.feature.area,
+                municipio: result.feature.municipio,
+                uf: result.feature.uf,
+              },
+            });
+          }
+        } catch { /* CAR sem polígono no SICAR — ignora */ }
+      }
+      if (features.length === 0) return;
+      const fc: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features };
+      renderNeighbors(fc, mainCar);
+      if (!map.hasLayer(lg)) lg.addTo(map);
+    };
+
+    fetchAndRender();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [registeredNeighbors]);
+
   // F5 — Confrontantes em AMARELO (#EF9F27 fill 0.25, stroke #BA7517 1.5px).
   // Selecionado/cadastrado ganham realce mais forte para diferenciação visual.
   const styleForNeighbor = (car: string): L.PathOptions => {
@@ -532,7 +578,7 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     }
     if (isRegistered) {
       // Cadastrado — mesma família amarela, porém mais intenso e sólido
-      return { color: '#7C2D12', weight: 2, fillColor: '#EF9F27', fillOpacity: 0.45, opacity: 1 };
+      return { color: '#7C2D12', weight: 2, fillColor: '#EF9F27', fillOpacity: 0.65, opacity: 1 };
     }
     // Estado base (detectado, não cadastrado, não selecionado)
     return { color: '#BA7517', weight: 1.5, fillColor: '#EF9F27', fillOpacity: 0.25, opacity: 0.9 };
@@ -669,6 +715,13 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
       update({ geojson: feat, source: 'sicar' });
       renderGeometry(dataRef.current);
       onCarLoaded?.(result.feature.cod_imovel);
+
+      // Ativa SICAR e SIGEF para a UF do imóvel após carregar o CAR com sucesso.
+      const map = mapInstance.current;
+      const sicar = sicarGroupRef.current;
+      const sigef = sigefGroupRef.current;
+      if (map && sicar && !map.hasLayer(sicar)) sicar.addTo(map);
+      // SIGEF começa desligado mas é registrado no controle para o usuário ativar.
 
       // F6 — Removida a busca automática de TOUCHES neighbors após carregar o CAR.
       // Confrontantes só aparecem se cadastrados manualmente.
