@@ -100,7 +100,16 @@ Sinais de que são o mesmo casal:
 
 Quando identificar esse padrão: mantenha o proprietário A com todos os dados. Preencha o campo cônjuge com os dados do proprietário B. Remova completamente o proprietário B da lista proprietarios_atuais.
 
-Esta regra NÃO se aplica quando dois proprietários são casados com terceiros diferentes — nesse caso ambos permanecem na lista normalmente.`;
+Esta regra NÃO se aplica quando dois proprietários são casados com terceiros diferentes — nesse caso ambos permanecem na lista normalmente.
+
+INSTRUÇÃO 10 — PROPRIETÁRIO FALECIDO:
+Se a matrícula contiver qualquer indicação de que um proprietário faleceu — como averbação de óbito, inventário, formal de partilha, espólio, 'de cujus', 'falecido(a)', 'falecimento', certidão de óbito averbada, ou transmissão por herança —, identificar o proprietário afetado e incluir um alerta crítico no array de alertas com o seguinte formato:
+{
+  "severity": "critical",
+  "message": "[FALECIMENTO] O proprietário [NOME] consta como falecido na matrícula. Verificar abertura de inventário, formal de partilha e averbação dos herdeiros antes de dar continuidade ao processo de georreferenciamento."
+}
+Também adicionar ao objeto do proprietário o campo: "situacao": "falecido".
+Se houver herdeiros já averbados na matrícula, listar seus nomes no campo "message" do alerta.`;
 
 const RETRY_PROMPT = (nome: string) =>
   `Na análise anterior NÃO foram encontrados CPF e RG do proprietário atual "${nome}". Pesquise em TODOS os atos anteriores desta matrícula — compra e venda, inventários, formais de partilha, averbações — e retorne quaisquer dados documentais (CPF, RG, órgão emissor, data de nascimento) associados ao nome "${nome}". Retorne SOMENTE JSON no formato:

@@ -116,7 +116,16 @@ Sinais de que são o mesmo casal:
 
 Quando identificar esse padrão: mantenha o proprietário A (primeiro listado no ato) com todos os dados completos. No campo cônjuge dele, preencha com os dados do proprietário B. Remova completamente o proprietário B da lista owners.
 
-Esta regra só se aplica quando os dois são claramente o mesmo casal. Se dois proprietários forem casados com TERCEIROS diferentes (não entre si), ambos devem ser listados normalmente como proprietários separados.`;
+Esta regra só se aplica quando os dois são claramente o mesmo casal. Se dois proprietários forem casados com TERCEIROS diferentes (não entre si), ambos devem ser listados normalmente como proprietários separados.
+
+INSTRUÇÃO 10 — PROPRIETÁRIO FALECIDO:
+Se a matrícula contiver qualquer indicação de que um proprietário faleceu — como averbação de óbito, inventário, formal de partilha, espólio, 'de cujus', 'falecido(a)', 'falecimento', certidão de óbito averbada, ou transmissão por herança —, identificar o proprietário afetado e incluir um alerta crítico no array de alertas com o seguinte formato:
+{
+  "severity": "critical",
+  "message": "[FALECIMENTO] O proprietário [NOME] consta como falecido na matrícula. Verificar abertura de inventário, formal de partilha e averbação dos herdeiros antes de dar continuidade ao processo de georreferenciamento."
+}
+Também adicionar ao objeto do proprietário o campo: "situacao": "falecido".
+Se houver herdeiros já averbados na matrícula, listar seus nomes no campo "message" do alerta.`;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });

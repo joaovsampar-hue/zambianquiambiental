@@ -155,6 +155,38 @@ export default function BoundariesTab({ formData, updateField, getField }: Bound
         fonte_dados_documentais: o.fonte_dados_documentais,
         verificar_titularidade: o.verificar_titularidade,
       }));
+
+      // Deduplicação: quando dois proprietários são casados entre si,
+      // mesclar o segundo como cônjuge do primeiro.
+      const deduped: NeighborOwner[] = [];
+      const removedIdx = new Set();
+      const norm = (s: string | null | undefined) =>
+        (s ?? '').replace(/\D/g, '').trim().toUpperCase();
+
+      for (let i = 0; i < owners.length; i++) {
+        if (removedIdx.has(i)) continue;
+        const a = { ...owners[i] };
+        const aConjugeCpf = norm(a.spouse?.cpf);
+        const aConjugeNome = (a.spouse?.name ?? '').trim().toUpperCase();
+        for (let j = i + 1; j < owners.length; j++) {
+          if (removedIdx.has(j)) continue;
+          const b = owners[j];
+          const bCpf = norm(b.cpf_cnpj);
+          const bNome = (b.name ?? '').trim().toUpperCase();
+          const match =
+            (aConjugeCpf && bCpf && aConjugeCpf === bCpf) ||
+            (aConjugeNome && bNome && aConjugeNome === bNome);
+          if (match) {
+            if (!a.spouse) a.spouse = {} as any;
+            if (!a.spouse!.name && b.name) a.spouse!.name = b.name;
+            if (!a.spouse!.cpf && b.cpf_cnpj) a.spouse!.cpf = b.cpf_cnpj;
+            if (!a.spouse!.rg && b.rg) a.spouse!.rg = b.rg;
+            removedIdx.add(j);
+            break;
+          }
+        }
+        deduped.push(a);
+      }
       // Hipotecas M5/R8 podem vir como array de objetos
       const mortgages: NeighborMortgage[] = Array.isArray(extracted?.encumbrances?.mortgage)
         ? extracted.encumbrances.mortgage
@@ -177,7 +209,7 @@ export default function BoundariesTab({ formData, updateField, getField }: Bound
       n.registry_office = ident.registry_office || n.registry_office;
       // Merge owners — chave por CPF, fallback nome
       const existingKeys = new Set(n.owners.map(o => o.cpf_cnpj || o.name));
-      for (const owner of owners) {
+      for (const owner of deduped) {
         const key = owner.cpf_cnpj || owner.name;
         if (!existingKeys.has(key)) {
           n.owners.push(owner);

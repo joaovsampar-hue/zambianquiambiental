@@ -155,27 +155,42 @@ function safeText(v: any): string {
   try { return JSON.stringify(v, null, 2); } catch { return String(v); }
 }
 
+const LIMIT_NON_NAMES = new Set([
+  'acima', 'abaixo', 'no', 'na', 'nos', 'nas', 'em', 'pelo', 'pela',
+  'rumo', 'sentido', 'direção', 'distância', 'metros', 'conforme',
+  'seguindo', 'margem', 'linha', 'reta', 'sinuosas', 'sempre',
+  'encontrar', 'deflexão', 'ponto', 'marco', 'vértice',
+]);
+
 function extractLimits(roteiro: string): Array<{ tipo: string; nome: string }> {
   if (!roteiro) return [];
   const results: Array<{ tipo: string; nome: string }> = [];
   const seen = new Set();
+
   const patterns = [
-    { tipo: 'Córrego', regex: /c[oó]rrego\s+(?:do\s+|da\s+|de\s+)?([A-ZÀ-Úa-zà-ú][^\s,;.()]+(?:\s+[A-ZÀ-Úa-zà-ú][^\s,;.()]+)*)/gi },
-    { tipo: 'Ribeirão', regex: /ribei[rã]o\s+(?:do\s+|da\s+|de\s+)?([A-ZÀ-Úa-zà-ú][^\s,;.()]+(?:\s+[A-ZÀ-Úa-zà-ú][^\s,;.()]+)*)/gi },
-    { tipo: 'Rio', regex: /\brio\s+(?:do\s+|da\s+|de\s+)?([A-ZÀ-Úa-zà-ú][^\s,;.()]+(?:\s+[A-ZÀ-Úa-zà-ú][^\s,;.()]+)*)/gi },
-    { tipo: 'Riacho', regex: /riacho\s+(?:do\s+|da\s+|de\s+)?([A-ZÀ-Úa-zà-ú][^\s,;.()]+(?:\s+[A-ZÀ-Úa-zà-ú][^\s,;.()]+)*)/gi },
-    { tipo: 'Estrada Municipal', regex: /estrada\s+municipal\s+([A-ZÀ-Úa-zà-ú][^\s,;.()\n]+(?:\s+[A-ZÀ-Úa-zà-ú][^\s,;.()\n]+)*)/gi },
-    { tipo: 'Estrada Estadual', regex: /estrada\s+estadual\s+([A-ZÀ-Úa-zà-ú][^\s,;.()\n]+(?:\s+[A-ZÀ-Úa-zà-ú][^\s,;.()\n]+)*)/gi },
-    { tipo: 'Rodovia', regex: /rodovia\s+([A-ZÀ-Úa-zà-ú][^\s,;.()\n]+(?:\s+[A-ZÀ-Úa-zà-ú][^\s,;.()\n]+)*)/gi },
-    { tipo: 'Estrada', regex: /\bestrada\s+(?!municipal|estadual)([A-ZÀ-Úa-zà-ú][^\s,;.()\n]+(?:\s+[A-ZÀ-Úa-zà-ú][^\s,;.()\n]+)*)/gi },
+    { tipo: 'Córrego',         regex: /c[oó]rrego\s+((?:do\s+|da\s+|dos\s+|das\s+|de\s+)?[^\s,;.()\n]+(?:\s+[^\s,;.()\n]+){0,3})/gi },
+    { tipo: 'Ribeirão',        regex: /ribei[rã]o\s+((?:do\s+|da\s+|dos\s+|das\s+|de\s+)?[^\s,;.()\n]+(?:\s+[^\s,;.()\n]+){0,3})/gi },
+    { tipo: 'Rio',             regex: /\brio\s+((?:do\s+|da\s+|dos\s+|das\s+|de\s+)?[^\s,;.()\n]+(?:\s+[^\s,;.()\n]+){0,3})/gi },
+    { tipo: 'Riacho',          regex: /riacho\s+((?:do\s+|da\s+|dos\s+|das\s+|de\s+)?[^\s,;.()\n]+(?:\s+[^\s,;.()\n]+){0,3})/gi },
+    { tipo: 'Estrada Municipal',regex: /estrada\s+municipal\s+([^\s,;.()\n]+(?:\s+[^\s,;.()\n]+){0,5})/gi },
+    { tipo: 'Estrada Estadual', regex: /estrada\s+estadual\s+([^\s,;.()\n]+(?:\s+[^\s,;.()\n]+){0,5})/gi },
+    { tipo: 'Rodovia',         regex: /rodovia\s+([^\s,;.()\n]+(?:\s+[^\s,;.()\n]+){0,5})/gi },
+    { tipo: 'Estrada',         regex: /\bestrada\s+(?!municipal|estadual|de\s+ferro)([^\s,;.()\n]+(?:\s+[^\s,;.()\n]+){0,5})/gi },
   ];
+
   for (const { tipo, regex } of patterns) {
     let match;
     regex.lastIndex = 0;
     while ((match = regex.exec(roteiro)) !== null) {
-      const nome = match[1].trim().replace(/\s+/g, ' ');
+      const raw = match[1].trim().replace(/\s+/g, ' ');
+      // Pega a primeira palavra significativa para verificar blacklist
+      const firstWord = raw.split(/\s+/)[0].toLowerCase().replace(/[^a-zà-ú]/g, '');
+      if (LIMIT_NON_NAMES.has(firstWord)) continue;
+      if (raw.length < 3 || raw.length > 60) continue;
+      // Limita ao nome principal (até encontrar preposição de direção)
+      const nome = raw.split(/\s+(?:no\s+rumo|em\s+linha|na\s+dist|até\s+|conf)/i)[0].trim();
       const key = `${tipo}:${nome.toLowerCase()}`;
-      if (!seen.has(key) && nome.length > 2 && nome.length < 80) {
+      if (!seen.has(key)) {
         seen.add(key);
         results.push({ tipo, nome });
       }
@@ -354,8 +369,7 @@ export async function exportToWord(data: AnalysisData) {
       ),
     });
     const rows = neighbors.map(n => {
-      const owner = (n.owners ?? [])[0];
-      const ownerName = owner?.name || '—';
+      const ownerName = (n.owners ?? []).map((o: any) => o.name).filter(Boolean).join(' / ') || '—';
       const munuf = [n.municipality, n.state].filter(Boolean).join('/') || '—';
       return new TableRow({
         children: [
@@ -624,8 +638,7 @@ export function exportToPdf(data: AnalysisData) {
       startY: y,
       head: [['Denominação', 'Proprietário atual', 'Matrícula', 'CCIR', 'Município/UF']],
       body: neighbors.map(n => {
-        const owner = (n.owners ?? [])[0];
-        const ownerName = owner?.name || '—';
+        const ownerName = (n.owners ?? []).map((o: any) => o.name).filter(Boolean).join(' / ') || '—';
         const munuf = [n.municipality, n.state].filter(Boolean).join('/') || '—';
         return [
           n.denomination || '—',
