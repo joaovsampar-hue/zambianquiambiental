@@ -373,47 +373,11 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [carNumber]);
 
-  // Quando há geometria pré-carregada (vinda do banco) + número CAR, busca os
-  // confrontantes diretos automaticamente. Sem isso, o usuário só veria os
-  // vizinhos azuis ao clicar em "Carregar este imóvel" — que normalmente nem
-  // dispara, pois o polígono já vem salvo do processo.
-  useEffect(() => {
-    const data = dataRef.current;
-    if (!data.geojson || !carNumber) return;
-    const uf = parseCarUF(carNumber);
-    if (!uf) return;
-    const geom = (data.geojson as any).geometry ?? data.geojson;
-    if (!geom?.type || (geom.type !== 'Polygon' && geom.type !== 'MultiPolygon')) return;
-    const mainCar = sanitizeCar(carNumber);
-    if (loadedCarsRef.current.has(mainCar)) return;
-    loadedCarsRef.current.add(mainCar);
-    (async () => {
-      setNeighborStatus('loading');
-      try {
-        const neighbors = await fetchTouchingNeighbors(uf, geom, mainCar);
-        if (!neighbors) {
-          setNeighborStatus('error');
-          return;
-        }
-        renderNeighbors(neighbors, mainCar);
-        const list = (neighbors.features ?? [])
-          .map(f => f.properties as any)
-          .filter(p => p?.cod_imovel && p.cod_imovel !== mainCar)
-          .map(p => ({
-            car: String(p.cod_imovel),
-            area: Number(p.area ?? 0),
-            municipio: String(p.municipio ?? ''),
-            uf: String(p.uf ?? uf),
-          }));
-        setNeighborCount(list.length);
-        setNeighborStatus(list.length > 0 ? 'done' : 'empty');
-        onNeighborsDetected?.(list);
-      } catch {
-        setNeighborStatus('error');
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [carNumber, initialData?.geojson]);
+  // F6 — Removida a busca automática de confrontantes (TOUCHES) ao carregar
+  // o polígono do imóvel. Confrontantes só aparecem no mapa quando cadastrados
+  // manualmente em process_neighbors. Mantemos apenas SICAR (WMS de fundo) +
+  // polígono do cliente. O usuário ainda pode clicar em qualquer parcela SICAR
+  // para identificar e adicionar como confrontante via popup.
 
   // Quando o container muda de tamanho (entra/sai de fullscreen), o Leaflet
   // precisa recalcular o tamanho dos tiles, senão fica metade cinza.
@@ -706,34 +670,8 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
       renderGeometry(dataRef.current);
       onCarLoaded?.(result.feature.cod_imovel);
 
-      // Buscar confrontantes diretos (que tocam a fronteira do imóvel) — não usa raio.
-      setNeighborStatus('loading');
-      try {
-        const neighbors = await fetchTouchingNeighbors(
-          result.feature.uf as SicarUF,
-          result.feature.geometry,
-          result.feature.cod_imovel,
-        );
-        if (neighbors) {
-          renderNeighbors(neighbors, result.feature.cod_imovel);
-          const list = (neighbors.features ?? [])
-            .map(f => f.properties as any)
-            .filter(p => p?.cod_imovel && p.cod_imovel !== result.feature.cod_imovel)
-            .map(p => ({
-              car: String(p.cod_imovel),
-              area: Number(p.area ?? 0),
-              municipio: String(p.municipio ?? ''),
-              uf: String(p.uf ?? result.feature.uf),
-            }));
-          setNeighborCount(list.length);
-          setNeighborStatus(list.length > 0 ? 'done' : 'empty');
-          onNeighborsDetected?.(list);
-        } else {
-          setNeighborStatus('error');
-        }
-      } catch {
-        setNeighborStatus('error');
-      }
+      // F6 — Removida a busca automática de TOUCHES neighbors após carregar o CAR.
+      // Confrontantes só aparecem se cadastrados manualmente.
 
       toast({
         title: 'Polígono SICAR carregado',
