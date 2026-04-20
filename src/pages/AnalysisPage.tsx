@@ -45,14 +45,23 @@ export function deduplicateConjuges(proprietarios: any[]): any[] {
         (aConjugeNome && bNome && aConjugeNome === bNome);
 
       if (conjugeMatch) {
-        // Mantém A como proprietário principal.
-        // Preenche dados do cônjuge com os dados de B (se A não tiver).
-        if (!a.spouse) a.spouse = {};
-        if (!a.spouse.cpf && b.cpf_cnpj) a.spouse.cpf = b.cpf_cnpj;
-        if (!a.spouse.name && b.name) a.spouse.name = b.name;
-        if (!a.spouse.rg && b.rg) a.spouse.rg = b.rg;
-        removedIndexes.add(j); // Remove B da lista
-        break;
+        // Se B tem participação própria preenchida, é co-proprietário legítimo —
+        // não remover. Apenas garante que o cônjuge de A está preenchido.
+        const bHasShare =
+          b.share_percentage != null &&
+          String(b.share_percentage).trim() !== '' &&
+          String(b.share_percentage).trim() !== '0';
+
+        if (!bHasShare) {
+          // B é apenas cônjuge espelhado — remover da lista.
+          if (!a.spouse) a.spouse = {};
+          if (!a.spouse.cpf && b.cpf_cnpj) a.spouse.cpf = b.cpf_cnpj;
+          if (!a.spouse.name && b.name) a.spouse.name = b.name;
+          if (!a.spouse.rg && b.rg) a.spouse.rg = b.rg;
+          removedIndexes.add(j);
+          break;
+        }
+        // Se B tem participação, mantém os dois como proprietários separados.
       }
     }
     result.push(a);
