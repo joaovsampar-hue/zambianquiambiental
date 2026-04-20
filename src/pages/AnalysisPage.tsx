@@ -53,15 +53,29 @@ export function deduplicateConjuges(proprietarios: any[]): any[] {
           String(b.share_percentage).trim() !== '0';
 
         if (!bHasShare) {
-          // B é apenas cônjuge espelhado — remover da lista.
+          // B não tem participação própria — é cônjuge espelhado. Remover B da lista.
           if (!a.spouse) a.spouse = {};
           if (!a.spouse.cpf && b.cpf_cnpj) a.spouse.cpf = b.cpf_cnpj;
           if (!a.spouse.name && b.name) a.spouse.name = b.name;
           if (!a.spouse.rg && b.rg) a.spouse.rg = b.rg;
           removedIndexes.add(j);
           break;
+        } else {
+          // Ambos têm participação — são co-proprietários legítimos.
+          // Manter os dois mas limpar referências cruzadas de cônjuge:
+          // se o cônjuge de A aponta para B, limpar (B já aparece como proprietário).
+          // se o cônjuge de B aponta para A, limpar (A já aparece como proprietário).
+          const aRefB =
+            (aConjugeCpf && bCpf && aConjugeCpf === bCpf) ||
+            (aConjugeNome && bNome && aConjugeNome === bNome);
+          const bRefA =
+            (normalized(b.spouse?.cpf) && aCpf && normalized(b.spouse?.cpf) === aCpf) ||
+            ((b.spouse?.name ?? '').trim().toUpperCase() &&
+              (a.name ?? '').trim().toUpperCase() &&
+              (b.spouse?.name ?? '').trim().toUpperCase() === (a.name ?? '').trim().toUpperCase());
+          if (aRefB) a.spouse = undefined;
+          if (bRefA) b.spouse = undefined;
         }
-        // Se B tem participação, mantém os dois como proprietários separados.
       }
     }
     result.push(a);
