@@ -23,6 +23,7 @@ interface NeighborOwner {
   rg?: string;
   marital_status?: string;
   marriage_regime?: string;
+  vigencia_lei_divorcio?: 'antes_da_vigencia' | 'apos_vigencia' | 'nao_identificado';
   spouse?: { name?: string; cpf?: string; rg?: string };
   fonte_dados_documentais?: string;
   verificar_titularidade?: boolean;
@@ -149,6 +150,7 @@ export default function BoundariesTab({ formData, updateField, getField }: Bound
         rg: o.rg || '',
         marital_status: o.marital_status || '',
         marriage_regime: o.marriage_regime || '',
+        vigencia_lei_divorcio: o.vigencia_lei_divorcio,
         spouse: o.spouse || undefined,
         fonte_dados_documentais: o.fonte_dados_documentais,
         verificar_titularidade: o.verificar_titularidade,
@@ -444,6 +446,21 @@ export default function BoundariesTab({ formData, updateField, getField }: Bound
                             <div key={oi} className="space-y-2 pl-3 border-l-2 border-primary/20">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <span className="text-xs font-semibold text-primary">Proprietário {oi + 1}</span>
+                                {owner.vigencia_lei_divorcio === 'antes_da_vigencia' && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-info/10 text-info border border-info/30">
+                                    pré-Lei 6.515/77 · comunhão universal
+                                  </span>
+                                )}
+                                {owner.vigencia_lei_divorcio === 'apos_vigencia' && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-success/10 text-success border border-success/30">
+                                    pós-Lei 6.515/77 · comunhão parcial
+                                  </span>
+                                )}
+                                {owner.vigencia_lei_divorcio === 'nao_identificado' && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-border">
+                                    Lei 6.515/77 não identificada
+                                  </span>
+                                )}
                                 {owner.fonte_dados_documentais === 'averbacao_anterior' && (
                                   <span className="text-[10px] px-1.5 py-0.5 rounded bg-info/10 text-info border border-info/30">
                                     dados de averbação anterior
