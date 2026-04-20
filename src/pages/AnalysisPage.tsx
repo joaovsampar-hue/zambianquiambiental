@@ -45,35 +45,20 @@ export function deduplicateConjuges(proprietarios: any[]): any[] {
 
       if (!conjugeMatch) continue;
 
-      const bHasShare =
-        b.share_percentage != null &&
-        String(b.share_percentage).trim() !== '' &&
-        String(b.share_percentage).trim() !== '0';
+      // Mesclar B como cônjuge de A — independente de B ter participação ou não.
+      // Preservar dados completos de B (incluindo share_percentage) no cônjuge de A.
+      if (!a.spouse) a.spouse = {};
+      if (!a.spouse.name && b.name) a.spouse.name = b.name;
+      if (!a.spouse.cpf && b.cpf_cnpj) a.spouse.cpf = b.cpf_cnpj;
+      if (!a.spouse.rg && b.rg) a.spouse.rg = b.rg;
+      // Preservar participação do cônjuge para exibição
+      if (b.share_percentage) a.spouse.share_percentage = b.share_percentage;
+      // Preservar dados extras do cônjuge
+      if (b.marital_status) a.spouse.marital_status = b.marital_status;
+      if (b.nationality) a.spouse.nationality = b.nationality;
 
-      if (!bHasShare) {
-        // B é cônjuge espelhado sem participação — remover da lista
-        if (!a.spouse) a.spouse = {};
-        if (!a.spouse.cpf && b.cpf_cnpj) a.spouse.cpf = b.cpf_cnpj;
-        if (!a.spouse.name && b.name) a.spouse.name = b.name;
-        if (!a.spouse.rg && b.rg) a.spouse.rg = b.rg;
-        proprietarios[i] = a;
-        removedIndexes.add(j);
-      } else {
-        // Ambos são co-proprietários — limpar referência cruzada de cônjuge
-        const aSpouseCpf = normalized(a.spouse?.cpf);
-        const aSpouseName = (a.spouse?.name ?? '').trim().toUpperCase();
-        if (aSpouseCpf === bCpf || aSpouseName === bNome) {
-          a.spouse = undefined;
-          proprietarios[i] = a;
-        }
-        const bSpouseCpf = normalized(b.spouse?.cpf);
-        const bSpouseName = (b.spouse?.name ?? '').trim().toUpperCase();
-        const aNome = (a.name ?? '').trim().toUpperCase();
-        if (bSpouseCpf === aCpf || bSpouseName === aNome) {
-          b.spouse = undefined;
-          proprietarios[j] = b;
-        }
-      }
+      proprietarios[i] = a;
+      removedIndexes.add(j);
       break;
     }
     result.push(proprietarios[i]);
@@ -383,6 +368,7 @@ export default function AnalysisPage() {
                     };
                     const isMarried = (owner?.marital_status ?? '').toString().toLowerCase().startsWith('cas');
                     const showSpouseSection = isMarried && !!(owner?.spouse?.name || owner?.spouse?.cpf || owner?.spouse?.rg);
+                    const spouseIsCoOwner = !!(owner?.spouse?.share_percentage);
                     const fonte = owner?.fonte_dados_documentais;
                     const verifTit = owner?.verificar_titularidade;
                     return (
@@ -425,11 +411,20 @@ export default function AnalysisPage() {
                         </div>
                         {showSpouseSection && (
                           <div className="pl-3 border-l-2 border-primary/20 space-y-3">
-                            <p className="text-xs font-semibold text-muted-foreground">Cônjuge</p>
+                            <p className="text-xs font-semibold text-muted-foreground">
+                              {spouseIsCoOwner ? 'Cônjuge (co-proprietário)' : 'Cônjuge'}
+                            </p>
                             <div className="grid grid-cols-2 gap-3">
                               <FieldWithAiIndicator label="Nome do cônjuge" value={owner?.spouse?.name} onChange={v => updateSpouse({ name: v })} />
                               <FieldWithAiIndicator label="CPF do cônjuge" value={owner?.spouse?.cpf} onChange={v => updateSpouse({ cpf: v })} />
                               <FieldWithAiIndicator label="RG do cônjuge" value={owner?.spouse?.rg} onChange={v => updateSpouse({ rg: v })} />
+                              {spouseIsCoOwner && (
+                                <FieldWithAiIndicator
+                                  label="Participação do cônjuge (%)"
+                                  value={owner?.spouse?.share_percentage}
+                                  onChange={v => updateSpouse({ share_percentage: v })}
+                                />
+                              )}
                             </div>
                           </div>
                         )}
