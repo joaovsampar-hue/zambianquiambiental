@@ -572,16 +572,37 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     const sanitized = sanitizeCar(car);
     const isRegistered = registeredNeighborsRef.current.has(sanitized);
     const isSelected = selectedNeighborsRef.current.has(sanitized);
-    if (isSelected) {
-      // Selecionado — amarelo vibrante tracejado para contrastar com o estado base
-      return { color: '#7C2D12', weight: 2.5, fillColor: '#F59E0B', fillOpacity: 0.55, opacity: 1, dashArray: '4 2' };
-    }
+
     if (isRegistered) {
-      // Cadastrado — mesma família amarela, porém mais intenso e sólido
-      return { color: '#7C2D12', weight: 2, fillColor: '#EF9F27', fillOpacity: 0.65, opacity: 1 };
+      // Cadastrado em process_neighbors — AMARELO
+      return {
+        color: '#BA7517',
+        weight: 2,
+        fillColor: '#EF9F27',
+        fillOpacity: 0.5,
+        opacity: 1,
+      };
     }
-    // Estado base (detectado, não cadastrado, não selecionado)
-    return { color: '#BA7517', weight: 1.5, fillColor: '#EF9F27', fillOpacity: 0.25, opacity: 0.9 };
+
+    if (isSelected) {
+      // Listado no painel mas ainda não cadastrado — AZUL
+      return {
+        color: '#185FA5',
+        weight: 2,
+        fillColor: '#378ADD',
+        fillOpacity: 0.4,
+        opacity: 1,
+      };
+    }
+
+    // Estado base — SICAR, não selecionado nem cadastrado
+    return {
+      color: '#F97316',
+      weight: 1.5,
+      fillColor: 'transparent',
+      fillOpacity: 0,
+      opacity: 0.85,
+    };
   };
 
   const renderNeighbors = (fc: GeoJSON.FeatureCollection, mainCar: string) => {
