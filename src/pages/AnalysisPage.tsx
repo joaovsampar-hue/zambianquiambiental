@@ -241,6 +241,7 @@ export default function AnalysisPage() {
               clientName: (analysis as any).property?.client?.name ?? '',
               version: analysis.version,
               createdAt: analysis.created_at,
+              neighbors: neighborsForReport as any,
             };
             exportToWord(d);
           }}>
@@ -254,6 +255,7 @@ export default function AnalysisPage() {
               clientName: (analysis as any).property?.client?.name ?? '',
               version: analysis.version,
               createdAt: analysis.created_at,
+              neighbors: neighborsForReport as any,
             };
             exportToPdf(d);
           }}>
