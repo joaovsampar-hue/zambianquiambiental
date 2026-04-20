@@ -41,6 +41,86 @@ function FieldWithAiIndicator({ label, value, onChange, required, multiline }: {
   );
 }
 
+/**
+ * Renderiza tabela padronizada para ônus retornados pela IA como array
+ * (alienação fiduciária, penhora, hipoteca). Apresenta cada item de forma
+ * legível em vez de despejar JSON cru no Textarea.
+ */
+function EncumbranceTable({ label, items, statusKey }: {
+  label: string;
+  items: any[];
+  statusKey: 'status_hipoteca' | 'status_fiduciaria' | 'status_penhora';
+}) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2">
+        <Label className="text-xs">{label}</Label>
+        <span title="Preenchido pela IA"><Bot className="w-3 h-3 text-primary" /></span>
+        <span className="text-[10px] text-muted-foreground">({items.length})</span>
+      </div>
+      <div className="border border-border rounded-md overflow-hidden">
+        <table className="w-full text-xs">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="text-left p-2 font-medium w-32">Ato origem</th>
+              <th className="text-left p-2 font-medium w-24">Status</th>
+              <th className="text-left p-2 font-medium w-32">Cancelamento</th>
+              <th className="text-left p-2 font-medium">Descrição</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((m: any, idx: number) => {
+              const status = m?.[statusKey] ?? m?.status_hipoteca ?? m?.status_fiduciaria ?? m?.status_penhora ?? 'indefinida';
+              return (
+                <tr key={idx} className="border-t border-border align-top">
+                  <td className="p-2 font-mono">{m?.ato_origem ?? '—'}</td>
+                  <td className="p-2">
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium whitespace-nowrap ${
+                      status === 'ativa' ? 'bg-destructive/10 text-destructive border border-destructive/30' :
+                      status === 'cancelada' ? 'bg-success/10 text-success border border-success/30' :
+                      'bg-warning/10 text-warning border border-warning/30'
+                    }`}>
+                      {status}
+                    </span>
+                  </td>
+                  <td className="p-2 font-mono text-muted-foreground">{m?.ato_cancelamento ?? '—'}</td>
+                  <td className="p-2 leading-relaxed">{m?.descricao ?? '—'}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/** Badge legível para vigência da Lei do Divórcio (Lei 6.515/77). */
+function VigenciaLeiBadge({ value }: { value?: string }) {
+  if (!value) return null;
+  const map: Record<string, { label: string; cls: string }> = {
+    antes_da_vigencia: {
+      label: 'pré-Lei 6.515/77 · padrão: comunhão universal',
+      cls: 'bg-info/10 text-info border-info/30',
+    },
+    apos_vigencia: {
+      label: 'pós-Lei 6.515/77 · padrão: comunhão parcial',
+      cls: 'bg-success/10 text-success border-success/30',
+    },
+    nao_identificado: {
+      label: 'Lei 6.515/77 não identificada',
+      cls: 'bg-muted text-muted-foreground border-border',
+    },
+  };
+  const cfg = map[value];
+  if (!cfg) return null;
+  return (
+    <span className={`text-[10px] px-1.5 py-0.5 rounded border ${cfg.cls}`}>
+      {cfg.label}
+    </span>
+  );
+}
+
 export default function AnalysisPage() {
   const { id } = useParams<{ id: string }>();
   const { toast } = useToast();
