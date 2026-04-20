@@ -161,7 +161,7 @@ export async function exportToWord(data: AnalysisData) {
   const owners = ed.owners ?? [];
   const enc = ed.encumbrances ?? {};
   const bounds = ed.boundaries ?? {};
-  const transfers = ed.transfers ?? [];
+
   const neighbors = data.neighbors ?? [];
 
   const children: any[] = [];
@@ -312,28 +312,9 @@ export async function exportToWord(data: AnalysisData) {
     }));
   }
 
-  // Transfers
-  if (transfers.length > 0) {
-    children.push(sectionHeading('6. Transmissões'));
-    transfers.forEach((t: any, i: number) => {
-      children.push(new Paragraph({ spacing: { before: 150 }, children: [new TextRun({ text: `Transmissão ${i + 1}`, bold: true, size: 22, font: 'Arial' })] }));
-      children.push(new Table({
-        width: { size: 9360, type: WidthType.DXA },
-        columnWidths: [3500, 5860],
-        rows: labelValueRows([
-          ['Data', t.date],
-          ['Natureza', t.nature],
-          ['Vendedor', t.seller],
-          ['Comprador', t.buyer],
-          ['Valor', t.value],
-        ]),
-      }));
-    });
-  }
-
   // Alerts
   if (data.alerts.length > 0) {
-    children.push(sectionHeading('7. Alertas'));
+    children.push(sectionHeading('6. Alertas'));
     data.alerts.forEach((a: any) => {
       const sev = a.severity === 'critical' ? '🔴' : a.severity === 'warning' ? '🟡' : '🔵';
       children.push(new Paragraph({
@@ -382,7 +363,7 @@ export function exportToPdf(data: AnalysisData) {
   const owners = ed.owners ?? [];
   const enc = ed.encumbrances ?? {};
   const bounds = ed.boundaries ?? {};
-  const transfers = ed.transfers ?? [];
+
   const neighbors = data.neighbors ?? [];
 
   const doc = new jsPDF();
@@ -572,36 +553,9 @@ export function exportToPdf(data: AnalysisData) {
     y = (doc as any).lastAutoTable.finalY + 4;
   }
 
-  // Transfers
-  if (transfers.length > 0) {
-    addSection('6. Transmissões');
-    transfers.forEach((t: any, i: number) => {
-      if (y > 260) { doc.addPage(); y = 20; }
-      doc.setFontSize(10);
-      doc.text(`Transmissão ${i + 1}`, 14, y);
-      y += 2;
-      autoTable(doc, {
-        startY: y,
-        head: [],
-        body: [
-          ['Data', t.date || '—'],
-          ['Natureza', t.nature || '—'],
-          ['Vendedor', t.seller || '—'],
-          ['Comprador', t.buyer || '—'],
-          ['Valor', t.value || '—'],
-        ],
-        theme: 'grid',
-        styles: { fontSize: 9 },
-        columnStyles: { 0: { fontStyle: 'bold', cellWidth: 45, fillColor: [232, 245, 233] } },
-        margin: { left: 14, right: 14 },
-      });
-      y = (doc as any).lastAutoTable.finalY + 4;
-    });
-  }
-
   // Alerts
   if (data.alerts.length > 0) {
-    addSection('7. Alertas');
+    addSection('6. Alertas');
     data.alerts.forEach((a: any) => {
       if (y > 270) { doc.addPage(); y = 20; }
       const sev = a.severity === 'critical' ? '[CRÍTICO]' : a.severity === 'warning' ? '[ATENÇÃO]' : '[INFO]';
