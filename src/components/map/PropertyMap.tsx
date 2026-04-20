@@ -526,7 +526,16 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     const lg = neighborsLayer.current;
     if (!map || !lg) return;
 
-    if (!registeredNeighbors || registeredNeighbors.size === 0) {
+    // União de todos os CARs que precisam de polígono:
+    // registeredNeighbors (amarelo) + selectedNeighbors ainda não registrados (azul)
+    const allCars = new Set<string>();
+    registeredNeighbors?.forEach(c => allCars.add(sanitizeCar(c)));
+    selectedNeighbors?.forEach(c => {
+      const s = sanitizeCar(c);
+      if (!registeredNeighbors?.has(s)) allCars.add(s);
+    });
+
+    if (allCars.size === 0) {
       lg.clearLayers();
       neighborLayersRef.current.clear();
       neighborsFcRef.current = null;
@@ -538,8 +547,9 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
       const mainCar = sanitizeCar(
         (dataRef.current.geojson as any)?.properties?.cod_imovel ?? ''
       );
-      for (const car of registeredNeighbors) {
-        if (sanitizeCar(car) === mainCar) continue;
+
+      for (const car of allCars) {
+        if (car === mainCar) continue;
         try {
           const result = await fetchCarPolygon(car);
           if (result.ok !== false) {
@@ -556,6 +566,7 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
           }
         } catch { /* CAR sem polígono no SICAR — ignora */ }
       }
+
       if (features.length === 0) return;
       const fc: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features };
       renderNeighbors(fc, mainCar);
@@ -564,7 +575,7 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
 
     fetchAndRender();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [registeredNeighbors]);
+  }, [registeredNeighbors, selectedNeighbors]);
 
   // F5 — Confrontantes em AMARELO (#EF9F27 fill 0.25, stroke #BA7517 1.5px).
   // Selecionado/cadastrado ganham realce mais forte para diferenciação visual.
