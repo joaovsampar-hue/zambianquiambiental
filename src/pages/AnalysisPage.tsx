@@ -298,8 +298,27 @@ export default function AnalysisPage() {
             <TabsContent value="encumbrances">
               <Card>
                 <CardContent className="p-5 space-y-4">
-                  <FieldWithAiIndicator label="Alienação Fiduciária" value={getField('encumbrances.fiduciary_alienation')} onChange={v => updateField('encumbrances.fiduciary_alienation', v)} multiline />
-                  <FieldWithAiIndicator label="Penhora" value={getField('encumbrances.seizure')} onChange={v => updateField('encumbrances.seizure', v)} multiline />
+                  {/* Alienação Fiduciária — M5/R8 também pode vir como array com status_fiduciaria */}
+                  {Array.isArray(formData?.encumbrances?.fiduciary_alienation) ? (
+                    <EncumbranceTable
+                      label="Alienação Fiduciária"
+                      items={formData.encumbrances.fiduciary_alienation}
+                      statusKey="status_fiduciaria"
+                    />
+                  ) : (
+                    <FieldWithAiIndicator label="Alienação Fiduciária" value={getField('encumbrances.fiduciary_alienation')} onChange={v => updateField('encumbrances.fiduciary_alienation', v)} multiline />
+                  )}
+
+                  {/* Penhora — idem */}
+                  {Array.isArray(formData?.encumbrances?.seizure) ? (
+                    <EncumbranceTable
+                      label="Penhora"
+                      items={formData.encumbrances.seizure}
+                      statusKey="status_penhora"
+                    />
+                  ) : (
+                    <FieldWithAiIndicator label="Penhora" value={getField('encumbrances.seizure')} onChange={v => updateField('encumbrances.seizure', v)} multiline />
+                  )}
 
                   {/* Hipotecas: M5/R8 retorna array com status. Renderiza tabela quando aplicável. */}
                   {Array.isArray(formData?.encumbrances?.mortgage) ? (
