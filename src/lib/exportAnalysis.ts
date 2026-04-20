@@ -155,6 +155,35 @@ function safeText(v: any): string {
   try { return JSON.stringify(v, null, 2); } catch { return String(v); }
 }
 
+function extractLimits(roteiro: string): Array<{ tipo: string; nome: string }> {
+  if (!roteiro) return [];
+  const results: Array<{ tipo: string; nome: string }> = [];
+  const seen = new Set();
+  const patterns = [
+    { tipo: 'Córrego', regex: /c[oó]rrego\s+(?:do\s+|da\s+|de\s+)?([A-ZÀ-Úa-zà-ú][^\s,;.()]+(?:\s+[A-ZÀ-Úa-zà-ú][^\s,;.()]+)*)/gi },
+    { tipo: 'Ribeirão', regex: /ribei[rã]o\s+(?:do\s+|da\s+|de\s+)?([A-ZÀ-Úa-zà-ú][^\s,;.()]+(?:\s+[A-ZÀ-Úa-zà-ú][^\s,;.()]+)*)/gi },
+    { tipo: 'Rio', regex: /\brio\s+(?:do\s+|da\s+|de\s+)?([A-ZÀ-Úa-zà-ú][^\s,;.()]+(?:\s+[A-ZÀ-Úa-zà-ú][^\s,;.()]+)*)/gi },
+    { tipo: 'Riacho', regex: /riacho\s+(?:do\s+|da\s+|de\s+)?([A-ZÀ-Úa-zà-ú][^\s,;.()]+(?:\s+[A-ZÀ-Úa-zà-ú][^\s,;.()]+)*)/gi },
+    { tipo: 'Estrada Municipal', regex: /estrada\s+municipal\s+([A-ZÀ-Úa-zà-ú][^\s,;.()\n]+(?:\s+[A-ZÀ-Úa-zà-ú][^\s,;.()\n]+)*)/gi },
+    { tipo: 'Estrada Estadual', regex: /estrada\s+estadual\s+([A-ZÀ-Úa-zà-ú][^\s,;.()\n]+(?:\s+[A-ZÀ-Úa-zà-ú][^\s,;.()\n]+)*)/gi },
+    { tipo: 'Rodovia', regex: /rodovia\s+([A-ZÀ-Úa-zà-ú][^\s,;.()\n]+(?:\s+[A-ZÀ-Úa-zà-ú][^\s,;.()\n]+)*)/gi },
+    { tipo: 'Estrada', regex: /\bestrada\s+(?!municipal|estadual)([A-ZÀ-Úa-zà-ú][^\s,;.()\n]+(?:\s+[A-ZÀ-Úa-zà-ú][^\s,;.()\n]+)*)/gi },
+  ];
+  for (const { tipo, regex } of patterns) {
+    let match;
+    regex.lastIndex = 0;
+    while ((match = regex.exec(roteiro)) !== null) {
+      const nome = match[1].trim().replace(/\s+/g, ' ');
+      const key = `${tipo}:${nome.toLowerCase()}`;
+      if (!seen.has(key) && nome.length > 2 && nome.length < 80) {
+        seen.add(key);
+        results.push({ tipo, nome });
+      }
+    }
+  }
+  return results;
+}
+
 export async function exportToWord(data: AnalysisData) {
   const ed = data.extractedData ?? {};
   const id = ed.identification ?? {};
@@ -222,6 +251,24 @@ export async function exportToWord(data: AnalysisData) {
           ['Nacionalidade', o.nationality],
         ]),
       }));
+      if (o.spouse?.name || o.spouse?.cpf) {
+        const spouseLabel = o.spouse?.share_percentage ? 'Cônjuge (co-proprietário)' : 'Cônjuge';
+        children.push(new Paragraph({
+          spacing: { before: 100 },
+          children: [new TextRun({ text: spouseLabel, bold: true, size: 20, font: 'Arial', color: '555555' })],
+        }));
+        const spouseRows: [string, string][] = [
+          ['Nome', o.spouse.name ?? ''],
+          ['CPF', o.spouse.cpf ?? ''],
+          ['RG', o.spouse.rg ?? ''],
+        ];
+        if (o.spouse.share_percentage) spouseRows.push(['Participação (%)', String(o.spouse.share_percentage)]);
+        children.push(new Table({
+          width: { size: 9360, type: WidthType.DXA },
+          columnWidths: [3500, 5860],
+          rows: labelValueRows(spouseRows),
+        }));
+      }
     });
   }
 
@@ -261,17 +308,35 @@ export async function exportToWord(data: AnalysisData) {
   }));
 
   // Boundaries (rumos)
-  children.push(sectionHeading('4. Rumos / Limites'));
-  children.push(new Table({
-    width: { size: 9360, type: WidthType.DXA },
-    columnWidths: [3500, 5860],
-    rows: labelValueRows([
-      ['Norte', bounds.north],
-      ['Sul', bounds.south],
-      ['Leste', bounds.east],
-      ['Oeste', bounds.west],
-    ]),
-  }));
+  const roteiroWord = (bounds.roteiro ?? '').toString();
+  const limitesWord = extractLimits(roteiroWord);
+  if (limitesWord.length > 0) {
+    children.push(sectionHeading('4. Limites Hídricos e Viários'));
+    const headerRow = new TableRow({
+      children: ['Tipo de limite', 'Nome'].map(h =>
+        new TableCell({
+          borders: cellBorders,
+          shading: { fill: 'E8F5E9', type: ShadingType.CLEAR },
+          margins: { top: 60, bottom: 60, left: 100, right: 100 },
+          children: [new Paragraph({ children: [new TextRun({ text: h, bold: true, size: 20, font: 'Arial' })] })],
+        })
+      ),
+    });
+    const dataRows = limitesWord.map(l => new TableRow({
+      children: [l.tipo, l.nome].map(txt =>
+        new TableCell({
+          borders: cellBorders,
+          margins: { top: 60, bottom: 60, left: 100, right: 100 },
+          children: [new Paragraph({ children: [new TextRun({ text: txt, size: 20, font: 'Arial' })] })],
+        })
+      ),
+    }));
+    children.push(new Table({
+      width: { size: 9360, type: WidthType.DXA },
+      columnWidths: [3500, 5860],
+      rows: [headerRow, ...dataRows],
+    }));
+  }
 
   // F2 — Confrontantes cadastrados (process_neighbors)
   children.push(sectionHeading('5. Confrontantes'));
@@ -451,6 +516,31 @@ export function exportToPdf(data: AnalysisData) {
         margin: { left: 14, right: 14 },
       });
       y = (doc as any).lastAutoTable.finalY + 4;
+      if (o.spouse?.name || o.spouse?.cpf) {
+        if (y > 260) { doc.addPage(); y = 20; }
+        const spouseLabel = o.spouse?.share_percentage ? 'Cônjuge (co-proprietário)' : 'Cônjuge';
+        doc.setFontSize(10);
+        doc.setTextColor(80, 80, 80);
+        doc.text(spouseLabel, 14, y);
+        y += 2;
+        doc.setTextColor(0, 0, 0);
+        const spouseBody: string[][] = [
+          ['Nome', o.spouse.name || '—'],
+          ['CPF', o.spouse.cpf || '—'],
+          ['RG', o.spouse.rg || '—'],
+        ];
+        if (o.spouse.share_percentage) spouseBody.push(['Participação (%)', String(o.spouse.share_percentage)]);
+        autoTable(doc, {
+          startY: y,
+          head: [],
+          body: spouseBody,
+          theme: 'grid',
+          styles: { fontSize: 9 },
+          columnStyles: { 0: { fontStyle: 'bold', cellWidth: 45, fillColor: [240, 240, 240] } },
+          margin: { left: 14, right: 14 },
+        });
+        y = (doc as any).lastAutoTable.finalY + 4;
+      }
     });
   }
 
@@ -504,22 +594,22 @@ export function exportToPdf(data: AnalysisData) {
   y = (doc as any).lastAutoTable.finalY + 4;
 
   // Boundaries (rumos)
-  addSection('4. Rumos / Limites');
-  autoTable(doc, {
-    startY: y,
-    head: [],
-    body: [
-      ['Norte', bounds.north || '—'],
-      ['Sul', bounds.south || '—'],
-      ['Leste', bounds.east || '—'],
-      ['Oeste', bounds.west || '—'],
-    ],
-    theme: 'grid',
-    styles: { fontSize: 9 },
-    columnStyles: { 0: { fontStyle: 'bold', cellWidth: 45, fillColor: [232, 245, 233] } },
-    margin: { left: 14, right: 14 },
-  });
-  y = (doc as any).lastAutoTable.finalY + 4;
+  const roteiroPdf = (bounds.roteiro ?? '').toString();
+  const limitesPdf = extractLimits(roteiroPdf);
+  if (limitesPdf.length > 0) {
+    addSection('4. Limites Hídricos e Viários');
+    autoTable(doc, {
+      startY: y,
+      head: [['Tipo de limite', 'Nome']],
+      body: limitesPdf.map(l => [l.tipo, l.nome]),
+      theme: 'grid',
+      styles: { fontSize: 9, cellPadding: 2 },
+      headStyles: { fillColor: [232, 245, 233], textColor: [30, 94, 50], fontStyle: 'bold' },
+      columnStyles: { 0: { fontStyle: 'bold', cellWidth: 45, fillColor: [245, 245, 245] } },
+      margin: { left: 14, right: 14 },
+    });
+    y = (doc as any).lastAutoTable.finalY + 4;
+  }
 
   // F2 — Confrontantes cadastrados
   addSection('5. Confrontantes');
