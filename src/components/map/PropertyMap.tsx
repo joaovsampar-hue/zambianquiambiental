@@ -373,47 +373,11 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [carNumber]);
 
-  // Quando há geometria pré-carregada (vinda do banco) + número CAR, busca os
-  // confrontantes diretos automaticamente. Sem isso, o usuário só veria os
-  // vizinhos azuis ao clicar em "Carregar este imóvel" — que normalmente nem
-  // dispara, pois o polígono já vem salvo do processo.
-  useEffect(() => {
-    const data = dataRef.current;
-    if (!data.geojson || !carNumber) return;
-    const uf = parseCarUF(carNumber);
-    if (!uf) return;
-    const geom = (data.geojson as any).geometry ?? data.geojson;
-    if (!geom?.type || (geom.type !== 'Polygon' && geom.type !== 'MultiPolygon')) return;
-    const mainCar = sanitizeCar(carNumber);
-    if (loadedCarsRef.current.has(mainCar)) return;
-    loadedCarsRef.current.add(mainCar);
-    (async () => {
-      setNeighborStatus('loading');
-      try {
-        const neighbors = await fetchTouchingNeighbors(uf, geom, mainCar);
-        if (!neighbors) {
-          setNeighborStatus('error');
-          return;
-        }
-        renderNeighbors(neighbors, mainCar);
-        const list = (neighbors.features ?? [])
-          .map(f => f.properties as any)
-          .filter(p => p?.cod_imovel && p.cod_imovel !== mainCar)
-          .map(p => ({
-            car: String(p.cod_imovel),
-            area: Number(p.area ?? 0),
-            municipio: String(p.municipio ?? ''),
-            uf: String(p.uf ?? uf),
-          }));
-        setNeighborCount(list.length);
-        setNeighborStatus(list.length > 0 ? 'done' : 'empty');
-        onNeighborsDetected?.(list);
-      } catch {
-        setNeighborStatus('error');
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [carNumber, initialData?.geojson]);
+  // F6 — Removida a busca automática de confrontantes (TOUCHES) ao carregar
+  // o polígono do imóvel. Confrontantes só aparecem no mapa quando cadastrados
+  // manualmente em process_neighbors. Mantemos apenas SICAR (WMS de fundo) +
+  // polígono do cliente. O usuário ainda pode clicar em qualquer parcela SICAR
+  // para identificar e adicionar como confrontante via popup.
 
   // Quando o container muda de tamanho (entra/sai de fullscreen), o Leaflet
   // precisa recalcular o tamanho dos tiles, senão fica metade cinza.
@@ -556,24 +520,22 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedNeighbors, registeredNeighbors]);
 
-  // Estilo aplicado a um polígono vizinho conforme estado atual:
-  //   - VERDE  → já cadastrado como confrontante (precedência máxima)
-  //   - AMARELO/LARANJA TRACEJADO → selecionado no painel pra cadastro em lote
-  //     (cor distinta do azul base pra dar feedback visual claro de seleção)
-  //   - AZUL CLARO → detectado mas não selecionado
-  // ITEM 6 — Camada 3 (Confrontantes): azul #378ADD com fill opacity 0.25,
-  // stroke #185FA5 1.5px com opacidade 0.9. Já cadastrados ganham destaque verde.
+  // F5 — Confrontantes em AMARELO (#EF9F27 fill 0.25, stroke #BA7517 1.5px).
+  // Selecionado/cadastrado ganham realce mais forte para diferenciação visual.
   const styleForNeighbor = (car: string): L.PathOptions => {
     const sanitized = sanitizeCar(car);
     const isRegistered = registeredNeighborsRef.current.has(sanitized);
-    if (isRegistered) {
-      return { color: '#155E48', weight: 2, fillColor: '#1D9E75', fillOpacity: 0.35, opacity: 1 };
-    }
     const isSelected = selectedNeighborsRef.current.has(sanitized);
-    return isSelected
-      // Selecionado — amarelo vibrante, stroke escuro tracejado pra contrastar com o azul base
-      ? { color: '#B45309', weight: 3, fillColor: '#F59E0B', fillOpacity: 0.55, opacity: 1, dashArray: '4 2' }
-      : { color: '#185FA5', weight: 1.5, fillColor: '#378ADD', fillOpacity: 0.25, opacity: 0.9 };
+    if (isSelected) {
+      // Selecionado — amarelo vibrante tracejado para contrastar com o estado base
+      return { color: '#7C2D12', weight: 2.5, fillColor: '#F59E0B', fillOpacity: 0.55, opacity: 1, dashArray: '4 2' };
+    }
+    if (isRegistered) {
+      // Cadastrado — mesma família amarela, porém mais intenso e sólido
+      return { color: '#7C2D12', weight: 2, fillColor: '#EF9F27', fillOpacity: 0.45, opacity: 1 };
+    }
+    // Estado base (detectado, não cadastrado, não selecionado)
+    return { color: '#BA7517', weight: 1.5, fillColor: '#EF9F27', fillOpacity: 0.25, opacity: 0.9 };
   };
 
   const renderNeighbors = (fc: GeoJSON.FeatureCollection, mainCar: string) => {
@@ -600,8 +562,9 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
         const showAddBtn = !!onNeighborPick;
         const showToggleBtn = !!onNeighborToggleRef.current;
 
-        // Re-renderiza o conteúdo do popup a cada abertura — o estado de
-        // seleção muda dinamicamente e o label do botão precisa refletir isso.
+        // F7 — Mesmo se o CAR já existir como cadastrado, o popup SEMPRE
+        // mostra o botão de adicionar. Isso permite reinserir após exclusão
+        // (e cria registros novos sem checagem de "já cadastrado").
         const buildHtml = () => {
           const isRegistered = registeredNeighborsRef.current.has(sanitized);
           const isSelected = selectedNeighborsRef.current.has(sanitized);
@@ -610,13 +573,11 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
             ? 'bg-primary text-primary-foreground'
             : 'bg-secondary text-secondary-foreground border border-border';
           const headerLabel = isRegistered
-            ? '<span class="font-semibold text-success">✓ Confrontante já cadastrado</span>'
+            ? '<span class="font-semibold text-success">✓ Já cadastrado (clique abaixo para readicionar)</span>'
             : '<span class="font-semibold">Imóvel vizinho (SICAR)</span>';
-          const actionsHtml = isRegistered
-            ? '<div class="text-[11px] text-muted-foreground italic">Este imóvel já consta na lista de confrontantes.</div>'
-            : `<div class="flex flex-wrap gap-1.5 pt-1">
+          const actionsHtml = `<div class="flex flex-wrap gap-1.5 pt-1">
                 ${showToggleBtn ? `<button id="${toggleBtnId}" class="px-2 py-1 rounded ${toggleClass} text-xs">${toggleLabel}</button>` : ''}
-                ${showAddBtn ? `<button id="${addBtnId}" class="px-2 py-1 rounded bg-secondary text-secondary-foreground text-xs border border-border">+ Listar como confrontante</button>` : ''}
+                ${showAddBtn ? `<button id="${addBtnId}" class="px-2 py-1 rounded bg-secondary text-secondary-foreground text-xs border border-border">+ Adicionar como confrontante</button>` : ''}
               </div>`;
           return `
             <div class="text-xs space-y-1.5" style="min-width:240px">
@@ -709,34 +670,8 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
       renderGeometry(dataRef.current);
       onCarLoaded?.(result.feature.cod_imovel);
 
-      // Buscar confrontantes diretos (que tocam a fronteira do imóvel) — não usa raio.
-      setNeighborStatus('loading');
-      try {
-        const neighbors = await fetchTouchingNeighbors(
-          result.feature.uf as SicarUF,
-          result.feature.geometry,
-          result.feature.cod_imovel,
-        );
-        if (neighbors) {
-          renderNeighbors(neighbors, result.feature.cod_imovel);
-          const list = (neighbors.features ?? [])
-            .map(f => f.properties as any)
-            .filter(p => p?.cod_imovel && p.cod_imovel !== result.feature.cod_imovel)
-            .map(p => ({
-              car: String(p.cod_imovel),
-              area: Number(p.area ?? 0),
-              municipio: String(p.municipio ?? ''),
-              uf: String(p.uf ?? result.feature.uf),
-            }));
-          setNeighborCount(list.length);
-          setNeighborStatus(list.length > 0 ? 'done' : 'empty');
-          onNeighborsDetected?.(list);
-        } else {
-          setNeighborStatus('error');
-        }
-      } catch {
-        setNeighborStatus('error');
-      }
+      // F6 — Removida a busca automática de TOUCHES neighbors após carregar o CAR.
+      // Confrontantes só aparecem se cadastrados manualmente.
 
       toast({
         title: 'Polígono SICAR carregado',
@@ -788,7 +723,7 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     if (!uf && carInput) uf = parseCarUF(carInput);
     if (!uf) {
       // Sem UF não dá pra consultar o WFS por ponto — popup informativo.
-      L.popup({ closeButton: true, autoClose: true })
+      L.popup({ closeButton: true, autoClose: true, closeOnClick: true })
         .setLatLng([lat, lng])
         .setContent(
           '<div class="text-xs">Selecione uma UF (busque por CAR primeiro) para identificar imóveis no clique.</div>',
@@ -798,7 +733,8 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     }
 
     setIdentifying(true);
-    const loadingPopup = L.popup({ closeButton: false, autoClose: false, maxWidth: 340 })
+    // F8 — Popup com botão de fechar visível e fechamento ao clicar fora.
+    const loadingPopup = L.popup({ closeButton: true, autoClose: false, closeOnClick: true, maxWidth: 340 })
       .setLatLng([lat, lng])
       .setContent('<div class="text-xs">Consultando SICAR…</div>')
       .openOn(map);
@@ -820,8 +756,6 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
                ${sigefHtml}
              </div>`,
           );
-          // Mostra o botão de fechar agora que o conteúdo está estável.
-          (loadingPopup.options as any).closeButton = true;
         } else {
           loadingPopup.setContent(
             '<div class="text-xs">Nenhum imóvel SICAR ou SIGEF neste ponto.</div>',

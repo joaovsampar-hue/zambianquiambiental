@@ -166,6 +166,7 @@ serve(async (req) => {
     ]);
 
     let parsed = tryParseJson(content1);
+    let tentativas = 1;
     if (!parsed || typeof parsed !== "object") {
       console.error("Parse falhou na 1ª chamada:", content1.slice(0, 400));
       parsed = {
@@ -176,10 +177,44 @@ serve(async (req) => {
       };
     }
 
+    // F4 — Retry automático quando o retorno está completamente vazio
+    // (denominação null, ccir null, e nenhum proprietário com nome).
+    const propsArr0 = Array.isArray(parsed.proprietarios_atuais) ? parsed.proprietarios_atuais : [];
+    const isCompletelyEmpty =
+      !parsed.denominacao_imovel &&
+      !parsed.ccir &&
+      (propsArr0.length === 0 || propsArr0.every((p: any) => !p?.nome));
+
+    if (isCompletelyEmpty) {
+      console.log("F4: 1ª chamada veio vazia, executando retry com prompt de fallback");
+      const fallbackInstruction = "A análise anterior retornou campos vazios. O documento pode ter qualidade baixa, marca d'água intensa ou formatação não convencional. Tente novamente com máxima atenção ao texto disponível. Extraia qualquer dado legível, mesmo que parcial. Para campos que não for possível ler com certeza, use '[ilegível]' em vez de null.";
+      try {
+        const content2 = await callAI(lovableApiKey, [
+          { role: "system", content: SYSTEM_PROMPT },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: `Analise esta matrícula de IMÓVEL CONFRONTANTE seguindo rigorosamente as regras do system prompt. ${fallbackInstruction}` },
+              { type: "image_url", image_url: { url: `data:application/pdf;base64,${base64}` } },
+            ],
+          },
+        ]);
+        const parsed2 = tryParseJson(content2);
+        if (parsed2 && typeof parsed2 === "object") {
+          parsed = parsed2;
+        }
+        tentativas = 2;
+      } catch (err) {
+        console.error("F4: retry falhou:", err);
+        tentativas = 2;
+      }
+    }
+
     // Normaliza — REMOVIDOS: alertas, hipotecas e qualquer campo de ônus
     parsed.proprietarios_atuais = Array.isArray(parsed.proprietarios_atuais) ? parsed.proprietarios_atuais : [];
     parsed.campos_incertos = Array.isArray(parsed.campos_incertos) ? parsed.campos_incertos : [];
     if (!parsed.ccir_fonte) parsed.ccir_fonte = parsed.ccir ? "ccir" : "nao_encontrado";
+    parsed.tentativas = tentativas;
     // Remove explicitamente campos de ônus que a IA possa retornar por hábito
     delete parsed.alertas;
     delete parsed.hipotecas;

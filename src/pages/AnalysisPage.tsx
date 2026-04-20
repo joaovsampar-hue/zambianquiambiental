@@ -95,30 +95,16 @@ function EncumbranceTable({ label, items, statusKey }: {
   );
 }
 
-/** Badge legível para vigência da Lei do Divórcio (Lei 6.515/77). */
-function VigenciaLeiBadge({ value }: { value?: string }) {
-  if (!value) return null;
-  const map: Record<string, { label: string; cls: string }> = {
-    antes_da_vigencia: {
-      label: 'pré-Lei 6.515/77 · padrão: comunhão universal',
-      cls: 'bg-info/10 text-info border-info/30',
-    },
-    apos_vigencia: {
-      label: 'pós-Lei 6.515/77 · padrão: comunhão parcial',
-      cls: 'bg-success/10 text-success border-success/30',
-    },
-    nao_identificado: {
-      label: 'Lei 6.515/77 não identificada',
-      cls: 'bg-muted text-muted-foreground border-border',
-    },
-  };
-  const cfg = map[value];
-  if (!cfg) return null;
-  return (
-    <span className={`text-[10px] px-1.5 py-0.5 rounded border ${cfg.cls}`}>
-      {cfg.label}
-    </span>
-  );
+/**
+ * F3 — Compõe o valor exibido no campo "Regime de casamento" embutindo
+ * a referência à Lei 6.515/77 no mesmo input (sem badge separado).
+ */
+function composeRegimeWithLei(regime: unknown, vigencia: unknown): string {
+  const base = (regime ?? '').toString().trim();
+  if (!base) return '';
+  if (vigencia === 'apos_vigencia') return `${base} (pós Lei 6.515/77)`;
+  if (vigencia === 'antes_da_vigencia') return `${base} (anterior à Lei 6.515/77)`;
+  return base;
 }
 
 export default function AnalysisPage() {
@@ -150,6 +136,20 @@ export default function AnalysisPage() {
         .maybeSingle();
       if (error) throw error;
       return data;
+    },
+  });
+
+  // F2 — Carrega confrontantes para incluir no relatório (Word/PDF).
+  const { data: neighborsForReport = [] } = useQuery({
+    queryKey: ['analysis-neighbors', (analysis as any)?.process_id],
+    enabled: !!(analysis as any)?.process_id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('process_neighbors')
+        .select('positions, full_name, property_denomination, neighbor_type, car_number, registration_number')
+        .eq('process_id', (analysis as any).process_id);
+      if (error) throw error;
+      return data ?? [];
     },
   });
 
@@ -241,6 +241,7 @@ export default function AnalysisPage() {
               clientName: (analysis as any).property?.client?.name ?? '',
               version: analysis.version,
               createdAt: analysis.created_at,
+              neighbors: neighborsForReport as any,
             };
             exportToWord(d);
           }}>
@@ -254,6 +255,7 @@ export default function AnalysisPage() {
               clientName: (analysis as any).property?.client?.name ?? '',
               version: analysis.version,
               createdAt: analysis.created_at,
+              neighbors: neighborsForReport as any,
             };
             exportToPdf(d);
           }}>
@@ -324,7 +326,6 @@ export default function AnalysisPage() {
                       <div key={i} className="p-4 border border-border rounded-lg space-y-3">
                         <div className="flex items-center gap-2 flex-wrap">
                           <p className="text-sm font-semibold text-primary">Proprietário {i + 1}</p>
-                          <VigenciaLeiBadge value={owner?.vigencia_lei_divorcio} />
                           {fonte === 'averbacao_anterior' && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-info/10 text-info border border-info/30">
                               dados de averbação anterior
@@ -348,7 +349,12 @@ export default function AnalysisPage() {
                           <FieldWithAiIndicator label="Data de nascimento" value={owner?.birth_date} onChange={v => updateOwner({ birth_date: v })} />
                           <FieldWithAiIndicator label="Nacionalidade" value={owner?.nationality} onChange={v => updateOwner({ nationality: v })} />
                           <FieldWithAiIndicator label="Estado civil" value={owner?.marital_status} onChange={v => updateOwner({ marital_status: v })} />
-                          <FieldWithAiIndicator label="Regime de casamento" value={owner?.marriage_regime} onChange={v => updateOwner({ marriage_regime: v })} />
+                          {/* F3 — Regime composto com referência à Lei 6.515/77 no mesmo input */}
+                          <FieldWithAiIndicator
+                            label="Regime de casamento"
+                            value={composeRegimeWithLei(owner?.marriage_regime, owner?.vigencia_lei_divorcio)}
+                            onChange={v => updateOwner({ marriage_regime: v, vigencia_lei_divorcio: undefined })}
+                          />
                           <FieldWithAiIndicator label="Participação (%)" value={owner?.share_percentage} onChange={v => updateOwner({ share_percentage: v })} />
                           <div className="col-span-2">
                             <FieldWithAiIndicator label="Endereço" value={owner?.address} onChange={v => updateOwner({ address: v })} multiline />
