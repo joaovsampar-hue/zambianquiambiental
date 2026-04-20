@@ -359,11 +359,10 @@ export default function ProcessDetailPage() {
                       <p className="text-xs text-muted-foreground">{new Date(a.created_at).toLocaleString('pt-BR')}</p>
                     </Link>
                     <div className="flex items-center gap-2">
-                      <span className={`text-xs px-2 py-1 rounded-full ${
-                        a.status === 'completed' ? 'bg-success/15 text-success' :
-                        a.status === 'error' ? 'bg-destructive/15 text-destructive' :
-                        'bg-info/15 text-info'
-                      }`}>{a.status}</span>
+                      <span className={`text-xs px-2 py-1 rounded-full ${a.status === 'completed' ? 'bg-success/15 text-success' :
+                          a.status === 'error' ? 'bg-destructive/15 text-destructive' :
+                            'bg-info/15 text-info'
+                        }`}>{a.status}</span>
                       <DeleteButton
                         iconOnly
                         title="Excluir análise?"

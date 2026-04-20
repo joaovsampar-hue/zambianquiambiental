@@ -136,6 +136,8 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
   // Mapa CAR → layer Leaflet do polígono vizinho. Permite re-estilizar
   // quando a seleção do painel muda, sem refazer toda a render.
   const neighborLayersRef = useRef<Map<string, L.Path>>(new Map());
+  // Cache de features já buscadas — evita re-fetch a cada mudança de seleção.
+  const fetchedFeaturesRef = useRef<Map<string, GeoJSON.Feature>>(new Map());
   // FeatureCollection raw dos vizinhos detectados (para exportação vetorial em PDF).
   const neighborsFcRef = useRef<GeoJSON.FeatureCollection | null>(null);
   // Refs com versão sempre-atual das props que dependem do React state —
@@ -526,8 +528,7 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     const lg = neighborsLayer.current;
     if (!map || !lg) return;
 
-    // União de todos os CARs que precisam de polígono:
-    // registeredNeighbors (amarelo) + selectedNeighbors ainda não registrados (azul)
+    // União de CARs que devem aparecer no mapa
     const allCars = new Set<string>();
     registeredNeighbors?.forEach(c => allCars.add(sanitizeCar(c)));
     selectedNeighbors?.forEach(c => {
@@ -535,25 +536,47 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
       if (!registeredNeighbors?.has(s)) allCars.add(s);
     });
 
+    // Remove layers de CARs que saíram dos dois conjuntos
+    neighborLayersRef.current.forEach((_, car) => {
+      if (!allCars.has(car)) {
+        const layer = neighborLayersRef.current.get(car);
+        if (layer) lg.removeLayer(layer as any);
+        neighborLayersRef.current.delete(car);
+        fetchedFeaturesRef.current.delete(car);
+      }
+    });
+
     if (allCars.size === 0) {
       lg.clearLayers();
       neighborLayersRef.current.clear();
+      fetchedFeaturesRef.current.clear();
       neighborsFcRef.current = null;
       return;
     }
 
-    const fetchAndRender = async () => {
-      const features: GeoJSON.Feature[] = [];
-      const mainCar = sanitizeCar(
-        (dataRef.current.geojson as any)?.properties?.cod_imovel ?? ''
-      );
+    const mainCar = sanitizeCar(
+      (dataRef.current.geojson as any)?.properties?.cod_imovel ?? ''
+    );
 
-      for (const car of allCars) {
-        if (car === mainCar) continue;
+    // Só busca CARs ainda não carregados
+    const newCars = [...allCars].filter(
+      c => c !== mainCar && !fetchedFeaturesRef.current.has(c)
+    );
+
+    if (newCars.length === 0) {
+      // Nada novo para buscar — só re-estilizar os existentes
+      neighborLayersRef.current.forEach((layer, car) => {
+        layer.setStyle(styleForNeighbor(car));
+      });
+      return;
+    }
+
+    const fetchAndAdd = async () => {
+      for (const car of newCars) {
         try {
           const result = await fetchCarPolygon(car);
           if (result.ok !== false) {
-            features.push({
+            const feat: GeoJSON.Feature = {
               type: 'Feature',
               geometry: result.feature.geometry,
               properties: {
@@ -562,18 +585,26 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
                 municipio: result.feature.municipio,
                 uf: result.feature.uf,
               },
-            });
+            };
+            fetchedFeaturesRef.current.set(car, feat);
           }
         } catch { /* CAR sem polígono no SICAR — ignora */ }
       }
 
+      // Reconstrói FeatureCollection com todos os CARs ativos
+      const features = [...allCars]
+        .filter(c => c !== mainCar && fetchedFeaturesRef.current.has(c))
+        .map(c => fetchedFeaturesRef.current.get(c)!);
+
       if (features.length === 0) return;
+
       const fc: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features };
       renderNeighbors(fc, mainCar);
+      neighborsFcRef.current = fc;
       if (!map.hasLayer(lg)) lg.addTo(map);
     };
 
-    fetchAndRender();
+    fetchAndAdd();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [registeredNeighbors, selectedNeighbors]);
 

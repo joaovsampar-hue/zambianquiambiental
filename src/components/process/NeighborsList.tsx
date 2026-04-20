@@ -177,6 +177,7 @@ export default function NeighborsList({ processId, clientName, processNumber, ca
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['neighbors', processId] });
+      qc.invalidateQueries({ queryKey: ['neighbors-cars', processId] });
       toast({ title: 'Confrontante removido' });
     },
   });
