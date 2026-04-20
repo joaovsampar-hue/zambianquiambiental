@@ -98,31 +98,27 @@ Sinais de que são o mesmo casal:
 - O campo conjuge_cpf do proprietário A é igual ao CPF do proprietário B
 - Ambos têm o mesmo endereço e regime de casamento
 
-Quando identificar esse padrão: mantenha o proprietário A com todos os dados. Preencha o campo cônjuge com os dados do proprietário B. Remova completamente o proprietário B da lista proprietarios_atuais.
+Quando identificar esse padrão: mantenha o proprietário A com todos os dados. Preencha o campo cônjuge com os dados do proprietário B incluindo share_percentage quando existir: { name, cpf, rg, share_percentage }. Remova completamente o proprietário B da lista proprietarios_atuais. O campo share_percentage do proprietário A deve permanecer com o valor original de A — não somar nem substituir pela participação de B.
 
 Esta regra NÃO se aplica quando dois proprietários são casados com terceiros diferentes — nesse caso ambos permanecem na lista normalmente.
 
-INSTRUÇÃO 10 — VERIFICAÇÃO DE FALECIMENTO APÓS IDENTIFICAR PROPRIETÁRIOS ATUAIS:
+INSTRUÇÃO 10 — VERIFICAÇÃO OBRIGATÓRIA DE FALECIMENTO:
 
-Após identificar os proprietários atuais pela Instrução 3, executar obrigatoriamente esta verificação para CADA proprietário identificado antes de retornar o JSON:
+Esta verificação deve ser executada APÓS identificar os proprietários atuais e ANTES de retornar o JSON. É obrigatória mesmo que o proprietário seja o último adquirente registrado.
 
-PASSO 1 — VARREDURA OBRIGATÓRIA DE ÓBITO:
-Percorrer TODAS as averbações da matrícula do início ao fim, inclusive as mais recentes e as últimas páginas, buscando o nome de cada proprietário atual junto com qualquer das seguintes palavras ou expressões: "falecimento", "falecido", "falecida", "óbito", "ocorreu o falecimento", "certidão de óbito", "de cujus", "espólio de", "por ato de ofício". Esta varredura é obrigatória mesmo que o proprietário tenha sido adquirente em ato recente — um óbito averbado posteriormente cancela a titularidade.
+PASSO 1: Para cada proprietário em owners, varrer TODAS as averbações da matrícula — do início ao fim, inclusive últimas páginas — buscando o nome desse proprietário junto com: 'falecimento', 'falecido', 'falecida', 'óbito', 'ocorreu o falecimento', 'certidão de óbito', 'de cujus', 'espólio de', 'por ato de ofício'. Esta varredura é obrigatória mesmo que o proprietário tenha adquirido o imóvel em ato recente.
 
-PASSO 2 — SE ENCONTRAR AVERBAÇÃO DE ÓBITO REFERENTE A UM PROPRIETÁRIO ATUAL:
-- Remover completamente esse proprietário do array owners. Ele NÃO deve aparecer como proprietário atual.
-- Identificar a fração do imóvel que pertencia a ele (ex: 3/6, 50%, etc.).
-- Verificar se há formal de partilha, inventário ou novo registro de transmissão posterior ao óbito para essa fração. Se sim, os novos titulares são os proprietários atuais dessa fração — incluí-los em owners.
-- Gerar alerta crítico: { "severity": "critical", "message": "[FALECIMENTO] O proprietário [NOME] consta como falecido na matrícula conforme [NÚMERO DA AVERBAÇÃO]. Data do falecimento: [DATA SE DISPONÍVEL]. A fração de [X] do imóvel foi afetada." }
+PASSO 2: Se encontrar averbação de óbito referente a um proprietário de owners:
+- Remover esse proprietário completamente de owners. Ele NUNCA deve aparecer como proprietário atual.
+- Verificar se há formal de partilha ou inventário posterior ao óbito para a fração dele. Se sim, os novos titulares entram em owners com suas respectivas frações.
+- Gerar alerta: { "severity": "critical", "message": "[FALECIMENTO] O proprietário [NOME] consta como falecido na matrícula conforme [NÚMERO DA AVERBAÇÃO]. Data: [DATA SE DISPONÍVEL]. Fração afetada: [X]." }
 
-PASSO 3 — FRAÇÃO SEM NOVO TITULAR REGISTRADO:
-Se após o óbito não houver inventário ou transmissão registrada para a fração do falecido, gerar segundo alerta crítico: { "severity": "critical", "message": "[ESPÓLIO PENDENTE] A fração de [X] pertencente a [NOME DO FALECIDO] está sem titular registrado. É necessário inventário e averbação dos herdeiros antes do georreferenciamento." }
+PASSO 3: Se a fração do falecido não tiver novo titular registrado:
+- Gerar segundo alerta: { "severity": "critical", "message": "[ESPÓLIO PENDENTE] A fração de [X] pertencente a [NOME DO FALECIDO] está sem titular registrado. Necessário inventário e averbação dos herdeiros antes do georreferenciamento." }
 
-PASSO 4 — ORDEM DE PRECEDÊNCIA:
-Um ato de óbito averbado SEMPRE tem precedência sobre a titularidade anterior, independentemente de qual ato constituiu a propriedade. A morte extingue a titularidade — o falecido nunca deve aparecer em owners.
+PASSO 4 — PRECEDÊNCIA ABSOLUTA: Um ato de óbito averbado SEMPRE cancela a titularidade anterior, independentemente de qual ato constituiu a propriedade. Proprietário falecido NUNCA aparece em owners.
 
-EXEMPLO CONCRETO DESTA INSTRUÇÃO:
-Em uma matrícula onde o R.22 atribuiu 3/6 a Aparecida Bottan da Silva e o AV.25 registrou seu falecimento em 22/08/2023: Aparecida NÃO deve constar em owners. Os proprietários atuais de suas frações dependem de inventário posterior. Se não houver inventário registrado, gerar alerta de espólio pendente dos 3/6. Os demais proprietários com frações próprias sem óbito (Silvana 1/6, Vanessa 1/6, Francisco Carlos 1/6) permanecem normalmente em owners.`;
+EXEMPLO: matrícula onde R.22 atribuiu 3/6 a Aparecida Bottan da Silva e AV.25 registrou falecimento em 22/08/2023 — Aparecida NÃO deve constar em owners. Gerar alerta de falecimento (AV.25) e alerta de espólio pendente (3/6).`;
 
 const RETRY_PROMPT = (nome: string) =>
   `Na análise anterior NÃO foram encontrados CPF e RG do proprietário atual "${nome}". Pesquise em TODOS os atos anteriores desta matrícula — compra e venda, inventários, formais de partilha, averbações — e retorne quaisquer dados documentais (CPF, RG, órgão emissor, data de nascimento) associados ao nome "${nome}". Retorne SOMENTE JSON no formato:
