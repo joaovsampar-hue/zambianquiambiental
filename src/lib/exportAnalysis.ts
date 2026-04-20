@@ -7,6 +7,15 @@ import { saveAs } from 'file-saver';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
+interface NeighborRow {
+  positions?: string[] | null;
+  full_name?: string | null;
+  property_denomination?: string | null;
+  neighbor_type?: string | null;
+  car_number?: string | null;
+  registration_number?: string | null;
+}
+
 interface AnalysisData {
   extractedData: any;
   alerts: any[];
@@ -14,6 +23,8 @@ interface AnalysisData {
   clientName: string;
   version: number;
   createdAt: string;
+  /** F2 — confrontantes carregados de process_neighbors. */
+  neighbors?: NeighborRow[];
 }
 
 const cellBorder = { style: BorderStyle.SINGLE, size: 1, color: 'CCCCCC' };
@@ -49,6 +60,93 @@ function sectionHeading(text: string) {
   });
 }
 
+// =============================================================================
+// F1 — Render encumbrances que vêm como ARRAY de objetos (M5/R8).
+// O bug original: o campo era serializado direto como string ("[object Object]").
+// Solução: detectar arrays e formatar legivelmente; fallback para texto livre.
+// =============================================================================
+
+function isArrayOfObjects(v: any): v is any[] {
+  return Array.isArray(v) && v.length > 0 && v.some(x => x && typeof x === 'object');
+}
+
+/** Devolve linhas de tabela (Word) para um conjunto de itens de ônus. */
+function encumbranceRowsWord(items: any[], statusKey: string): TableRow[] {
+  const header = new TableRow({
+    children: ['#', 'Ato origem', 'Status', 'Cancelamento', 'Descrição'].map(h =>
+      new TableCell({
+        borders: cellBorders,
+        shading: { fill: 'E8F5E9', type: ShadingType.CLEAR },
+        margins: { top: 60, bottom: 60, left: 80, right: 80 },
+        children: [new Paragraph({ children: [new TextRun({ text: h, bold: true, size: 18, font: 'Arial' })] })],
+      })
+    ),
+  });
+  const dataRows = items.map((it, i) => {
+    const status = it?.[statusKey] ?? it?.status_hipoteca ?? it?.status_fiduciaria ?? it?.status_penhora ?? 'indefinida';
+    const isCanceled = status === 'cancelada';
+    const desc = (it?.descricao ?? '').toString();
+    return new TableRow({
+      children: [
+        String(i + 1),
+        it?.ato_origem ?? '—',
+        isCanceled ? `${status} (quitada)` : status,
+        it?.ato_cancelamento ?? '—',
+        desc,
+      ].map((txt, idx) =>
+        new TableCell({
+          borders: cellBorders,
+          margins: { top: 50, bottom: 50, left: 80, right: 80 },
+          width: idx === 4 ? { size: 4000, type: WidthType.DXA } : undefined,
+          children: [new Paragraph({ children: [new TextRun({ text: String(txt || '—'), size: 18, font: 'Arial' })] })],
+        })
+      ),
+    });
+  });
+  return [header, ...dataRows];
+}
+
+/** String legível do array de ônus para PDF (jsPDF autoTable). */
+function encumbranceTableForPdf(doc: jsPDF, startY: number, items: any[], statusKey: string): number {
+  const body = items.map((it, i) => {
+    const status = it?.[statusKey] ?? it?.status_hipoteca ?? it?.status_fiduciaria ?? it?.status_penhora ?? 'indefinida';
+    const isCanceled = status === 'cancelada';
+    return [
+      String(i + 1),
+      it?.ato_origem ?? '—',
+      isCanceled ? `${status} (quitada)` : status,
+      it?.ato_cancelamento ?? '—',
+      (it?.descricao ?? '—').toString(),
+    ];
+  });
+  autoTable(doc, {
+    startY,
+    head: [['#', 'Ato origem', 'Status', 'Cancelamento', 'Descrição']],
+    body,
+    theme: 'grid',
+    styles: { fontSize: 8, cellPadding: 2, overflow: 'linebreak' },
+    headStyles: { fillColor: [232, 245, 233], textColor: [30, 94, 50], fontStyle: 'bold' },
+    columnStyles: {
+      0: { cellWidth: 8, halign: 'center' },
+      1: { cellWidth: 22 },
+      2: { cellWidth: 22 },
+      3: { cellWidth: 22 },
+      4: { cellWidth: 'auto' },
+    },
+    margin: { left: 14, right: 14 },
+  });
+  return (doc as any).lastAutoTable.finalY + 4;
+}
+
+/** Coerção segura para texto livre (campos não-array). */
+function safeText(v: any): string {
+  if (v == null) return '—';
+  if (typeof v === 'string') return v || '—';
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  // Não despeja [object Object] — serializa de forma legível.
+  try { return JSON.stringify(v, null, 2); } catch { return String(v); }
+}
+
 export async function exportToWord(data: AnalysisData) {
   const ed = data.extractedData ?? {};
   const id = ed.identification ?? {};
@@ -56,6 +154,7 @@ export async function exportToWord(data: AnalysisData) {
   const enc = ed.encumbrances ?? {};
   const bounds = ed.boundaries ?? {};
   const transfers = ed.transfers ?? [];
+  const neighbors = data.neighbors ?? [];
 
   const children: any[] = [];
 
@@ -95,6 +194,13 @@ export async function exportToWord(data: AnalysisData) {
     children.push(sectionHeading('2. Proprietários'));
     owners.forEach((o: any, i: number) => {
       children.push(new Paragraph({ spacing: { before: 150 }, children: [new TextRun({ text: `Proprietário ${i + 1}`, bold: true, size: 22, font: 'Arial' })] }));
+      // F3 — Regime + Lei 6.515/77 no MESMO campo
+      const regime = (o.marriage_regime ?? '').toString().trim();
+      const vig = o.vigencia_lei_divorcio;
+      const regimeFull =
+        vig === 'apos_vigencia' && regime ? `${regime} (pós Lei 6.515/77)` :
+        vig === 'antes_da_vigencia' && regime ? `${regime} (anterior à Lei 6.515/77)` :
+        regime;
       children.push(new Table({
         width: { size: 9360, type: WidthType.DXA },
         columnWidths: [3500, 5860],
@@ -103,6 +209,7 @@ export async function exportToWord(data: AnalysisData) {
           ['CPF/CNPJ', o.cpf_cnpj],
           ['RG', o.rg],
           ['Estado Civil', o.marital_status],
+          ['Regime de Casamento', regimeFull],
           ['Participação (%)', o.share_percentage],
           ['Nacionalidade', o.nationality],
         ]),
@@ -110,25 +217,43 @@ export async function exportToWord(data: AnalysisData) {
     });
   }
 
-  // Encumbrances
+  // F1 — Encumbrances: iterar arrays
   children.push(sectionHeading('3. Ônus e Restrições'));
+
+  const encSections: Array<[string, any, string]> = [
+    ['Alienação Fiduciária', enc.fiduciary_alienation, 'status_fiduciaria'],
+    ['Penhora', enc.seizure, 'status_penhora'],
+    ['Hipoteca', enc.mortgage, 'status_hipoteca'],
+  ];
+  for (const [label, value, statusKey] of encSections) {
+    children.push(new Paragraph({ spacing: { before: 200, after: 80 }, children: [new TextRun({ text: label, bold: true, size: 22, font: 'Arial' })] }));
+    if (isArrayOfObjects(value)) {
+      children.push(new Table({
+        width: { size: 9360, type: WidthType.DXA },
+        rows: encumbranceRowsWord(value, statusKey),
+      }));
+    } else if (Array.isArray(value) && value.length === 0) {
+      children.push(new Paragraph({ children: [new TextRun({ text: 'Nenhum registrado', italics: true, size: 20, font: 'Arial', color: '888888' })] }));
+    } else {
+      children.push(new Paragraph({ children: [new TextRun({ text: safeText(value), size: 20, font: 'Arial' })] }));
+    }
+  }
+
+  // Outros campos textuais
   children.push(new Table({
     width: { size: 9360, type: WidthType.DXA },
     columnWidths: [3500, 5860],
     rows: labelValueRows([
-      ['Alienação Fiduciária', enc.fiduciary_alienation],
-      ['Penhora', enc.seizure],
-      ['Hipoteca', enc.mortgage],
-      ['Servidões', enc.easements],
-      ['Reserva Legal (ARL)', enc.legal_reserve],
-      ['APP', enc.app],
-      ['Cláusulas Especiais', enc.special_clauses],
-      ['Observações', enc.general_notes],
+      ['Servidões', safeText(enc.easements)],
+      ['Reserva Legal (ARL)', safeText(enc.legal_reserve)],
+      ['APP', safeText(enc.app)],
+      ['Cláusulas Especiais', safeText(enc.special_clauses)],
+      ['Observações', safeText(enc.general_notes)],
     ]),
   }));
 
-  // Boundaries
-  children.push(sectionHeading('4. Confrontantes'));
+  // Boundaries (rumos)
+  children.push(sectionHeading('4. Rumos / Limites'));
   children.push(new Table({
     width: { size: 9360, type: WidthType.DXA },
     columnWidths: [3500, 5860],
@@ -140,9 +265,43 @@ export async function exportToWord(data: AnalysisData) {
     ]),
   }));
 
+  // F2 — Confrontantes cadastrados (process_neighbors)
+  children.push(sectionHeading('5. Confrontantes'));
+  if (neighbors.length === 0) {
+    children.push(new Paragraph({ children: [new TextRun({ text: 'Nenhum confrontante cadastrado', italics: true, size: 20, font: 'Arial', color: '888888' })] }));
+  } else {
+    const headerRow = new TableRow({
+      children: ['Posição', 'Nome / Denominação', 'Tipo', 'CAR', 'Matrícula'].map(h =>
+        new TableCell({
+          borders: cellBorders,
+          shading: { fill: 'E8F5E9', type: ShadingType.CLEAR },
+          margins: { top: 60, bottom: 60, left: 80, right: 80 },
+          children: [new Paragraph({ children: [new TextRun({ text: h, bold: true, size: 18, font: 'Arial' })] })],
+        })
+      ),
+    });
+    const rows = neighbors.map(n => new TableRow({
+      children: [
+        (n.positions ?? []).join(', ') || '—',
+        n.full_name || n.property_denomination || '—',
+        n.neighbor_type === 'pj' ? 'PJ' : 'PF',
+        n.car_number || '—',
+        n.registration_number || '—',
+      ].map(txt => new TableCell({
+        borders: cellBorders,
+        margins: { top: 50, bottom: 50, left: 80, right: 80 },
+        children: [new Paragraph({ children: [new TextRun({ text: String(txt), size: 18, font: 'Arial' })] })],
+      })),
+    }));
+    children.push(new Table({
+      width: { size: 9360, type: WidthType.DXA },
+      rows: [headerRow, ...rows],
+    }));
+  }
+
   // Transfers
   if (transfers.length > 0) {
-    children.push(sectionHeading('5. Transmissões'));
+    children.push(sectionHeading('6. Transmissões'));
     transfers.forEach((t: any, i: number) => {
       children.push(new Paragraph({ spacing: { before: 150 }, children: [new TextRun({ text: `Transmissão ${i + 1}`, bold: true, size: 22, font: 'Arial' })] }));
       children.push(new Table({
@@ -161,7 +320,7 @@ export async function exportToWord(data: AnalysisData) {
 
   // Alerts
   if (data.alerts.length > 0) {
-    children.push(sectionHeading('6. Alertas'));
+    children.push(sectionHeading('7. Alertas'));
     data.alerts.forEach((a: any) => {
       const sev = a.severity === 'critical' ? '🔴' : a.severity === 'warning' ? '🟡' : '🔵';
       children.push(new Paragraph({
@@ -172,9 +331,7 @@ export async function exportToWord(data: AnalysisData) {
   }
 
   const doc = new Document({
-    styles: {
-      default: { document: { run: { font: 'Arial', size: 20 } } },
-    },
+    styles: { default: { document: { run: { font: 'Arial', size: 20 } } } },
     sections: [{
       properties: {
         page: {
@@ -213,6 +370,7 @@ export function exportToPdf(data: AnalysisData) {
   const enc = ed.encumbrances ?? {};
   const bounds = ed.boundaries ?? {};
   const transfers = ed.transfers ?? [];
+  const neighbors = data.neighbors ?? [];
 
   const doc = new jsPDF();
   const green = [30, 94, 50] as [number, number, number];
@@ -274,6 +432,13 @@ export function exportToPdf(data: AnalysisData) {
       doc.setFontSize(10);
       doc.text(`Proprietário ${i + 1}`, 14, y);
       y += 2;
+      // F3 — Regime + lei no mesmo campo
+      const regime = (o.marriage_regime ?? '').toString().trim();
+      const vig = o.vigencia_lei_divorcio;
+      const regimeFull =
+        vig === 'apos_vigencia' && regime ? `${regime} (pós Lei 6.515/77)` :
+        vig === 'antes_da_vigencia' && regime ? `${regime} (anterior à Lei 6.515/77)` :
+        (regime || '—');
       autoTable(doc, {
         startY: y,
         head: [],
@@ -282,6 +447,7 @@ export function exportToPdf(data: AnalysisData) {
           ['CPF/CNPJ', o.cpf_cnpj || '—'],
           ['RG', o.rg || '—'],
           ['Estado Civil', o.marital_status || '—'],
+          ['Regime de Casamento', regimeFull],
           ['Participação (%)', o.share_percentage || '—'],
           ['Nacionalidade', o.nationality || '—'],
         ],
@@ -294,20 +460,47 @@ export function exportToPdf(data: AnalysisData) {
     });
   }
 
-  // Encumbrances
+  // F1 — Encumbrances: array → tabela; vazio → "Nenhum registrado"; texto → texto
   addSection('3. Ônus e Restrições');
+  const encSections: Array<[string, any, string]> = [
+    ['Alienação Fiduciária', enc.fiduciary_alienation, 'status_fiduciaria'],
+    ['Penhora', enc.seizure, 'status_penhora'],
+    ['Hipoteca', enc.mortgage, 'status_hipoteca'],
+  ];
+  for (const [label, value, statusKey] of encSections) {
+    if (y > 250) { doc.addPage(); y = 20; }
+    doc.setFontSize(11);
+    doc.setTextColor(...green);
+    doc.text(label, 14, y);
+    y += 5;
+    doc.setTextColor(0, 0, 0);
+    doc.setFontSize(9);
+    if (isArrayOfObjects(value)) {
+      y = encumbranceTableForPdf(doc, y, value, statusKey);
+    } else if (Array.isArray(value) && value.length === 0) {
+      doc.setTextColor(120, 120, 120);
+      doc.text('Nenhum registrado', 14, y);
+      doc.setTextColor(0, 0, 0);
+      y += 6;
+    } else {
+      const txt = safeText(value);
+      const lines = doc.splitTextToSize(txt, pageW - 28);
+      doc.text(lines, 14, y);
+      y += lines.length * 4 + 2;
+    }
+  }
+
+  // Outros campos textuais (servidões, ARL, APP, etc)
+  if (y > 250) { doc.addPage(); y = 20; }
   autoTable(doc, {
     startY: y,
     head: [],
     body: [
-      ['Alienação Fiduciária', enc.fiduciary_alienation || '—'],
-      ['Penhora', enc.seizure || '—'],
-      ['Hipoteca', enc.mortgage || '—'],
-      ['Servidões', enc.easements || '—'],
-      ['Reserva Legal (ARL)', enc.legal_reserve || '—'],
-      ['APP', enc.app || '—'],
-      ['Cláusulas Especiais', enc.special_clauses || '—'],
-      ['Observações', enc.general_notes || '—'],
+      ['Servidões', safeText(enc.easements)],
+      ['Reserva Legal (ARL)', safeText(enc.legal_reserve)],
+      ['APP', safeText(enc.app)],
+      ['Cláusulas Especiais', safeText(enc.special_clauses)],
+      ['Observações', safeText(enc.general_notes)],
     ],
     theme: 'grid',
     styles: { fontSize: 9 },
@@ -316,8 +509,8 @@ export function exportToPdf(data: AnalysisData) {
   });
   y = (doc as any).lastAutoTable.finalY + 4;
 
-  // Boundaries
-  addSection('4. Confrontantes');
+  // Boundaries (rumos)
+  addSection('4. Rumos / Limites');
   autoTable(doc, {
     startY: y,
     head: [],
@@ -334,9 +527,36 @@ export function exportToPdf(data: AnalysisData) {
   });
   y = (doc as any).lastAutoTable.finalY + 4;
 
+  // F2 — Confrontantes cadastrados
+  addSection('5. Confrontantes');
+  if (neighbors.length === 0) {
+    doc.setTextColor(120, 120, 120);
+    doc.setFontSize(9);
+    doc.text('Nenhum confrontante cadastrado', 14, y);
+    doc.setTextColor(0, 0, 0);
+    y += 6;
+  } else {
+    autoTable(doc, {
+      startY: y,
+      head: [['Posição', 'Nome / Denominação', 'Tipo', 'CAR', 'Matrícula']],
+      body: neighbors.map(n => [
+        (n.positions ?? []).join(', ') || '—',
+        n.full_name || n.property_denomination || '—',
+        n.neighbor_type === 'pj' ? 'PJ' : 'PF',
+        n.car_number || '—',
+        n.registration_number || '—',
+      ]),
+      theme: 'grid',
+      styles: { fontSize: 8, cellPadding: 2, overflow: 'linebreak' },
+      headStyles: { fillColor: [232, 245, 233], textColor: [30, 94, 50], fontStyle: 'bold' },
+      margin: { left: 14, right: 14 },
+    });
+    y = (doc as any).lastAutoTable.finalY + 4;
+  }
+
   // Transfers
   if (transfers.length > 0) {
-    addSection('5. Transmissões');
+    addSection('6. Transmissões');
     transfers.forEach((t: any, i: number) => {
       if (y > 260) { doc.addPage(); y = 20; }
       doc.setFontSize(10);
@@ -363,7 +583,7 @@ export function exportToPdf(data: AnalysisData) {
 
   // Alerts
   if (data.alerts.length > 0) {
-    addSection('6. Alertas');
+    addSection('7. Alertas');
     data.alerts.forEach((a: any) => {
       if (y > 270) { doc.addPage(); y = 20; }
       const sev = a.severity === 'critical' ? '[CRÍTICO]' : a.severity === 'warning' ? '[ATENÇÃO]' : '[INFO]';

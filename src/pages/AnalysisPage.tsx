@@ -95,30 +95,16 @@ function EncumbranceTable({ label, items, statusKey }: {
   );
 }
 
-/** Badge legível para vigência da Lei do Divórcio (Lei 6.515/77). */
-function VigenciaLeiBadge({ value }: { value?: string }) {
-  if (!value) return null;
-  const map: Record<string, { label: string; cls: string }> = {
-    antes_da_vigencia: {
-      label: 'pré-Lei 6.515/77 · padrão: comunhão universal',
-      cls: 'bg-info/10 text-info border-info/30',
-    },
-    apos_vigencia: {
-      label: 'pós-Lei 6.515/77 · padrão: comunhão parcial',
-      cls: 'bg-success/10 text-success border-success/30',
-    },
-    nao_identificado: {
-      label: 'Lei 6.515/77 não identificada',
-      cls: 'bg-muted text-muted-foreground border-border',
-    },
-  };
-  const cfg = map[value];
-  if (!cfg) return null;
-  return (
-    <span className={`text-[10px] px-1.5 py-0.5 rounded border ${cfg.cls}`}>
-      {cfg.label}
-    </span>
-  );
+/**
+ * F3 — Compõe o valor exibido no campo "Regime de casamento" embutindo
+ * a referência à Lei 6.515/77 no mesmo input (sem badge separado).
+ */
+function composeRegimeWithLei(regime: unknown, vigencia: unknown): string {
+  const base = (regime ?? '').toString().trim();
+  if (!base) return '';
+  if (vigencia === 'apos_vigencia') return `${base} (pós Lei 6.515/77)`;
+  if (vigencia === 'antes_da_vigencia') return `${base} (anterior à Lei 6.515/77)`;
+  return base;
 }
 
 export default function AnalysisPage() {
