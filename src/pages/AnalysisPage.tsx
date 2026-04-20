@@ -139,6 +139,20 @@ export default function AnalysisPage() {
     },
   });
 
+  // F2 — Carrega confrontantes para incluir no relatório (Word/PDF).
+  const { data: neighborsForReport = [] } = useQuery({
+    queryKey: ['analysis-neighbors', (analysis as any)?.process_id],
+    enabled: !!(analysis as any)?.process_id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('process_neighbors')
+        .select('positions, full_name, property_denomination, neighbor_type, car_number, registration_number')
+        .eq('process_id', (analysis as any).process_id);
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
   const [formData, setFormData] = useState<any>(null);
 
   // Initialize form when data loads
@@ -310,7 +324,6 @@ export default function AnalysisPage() {
                       <div key={i} className="p-4 border border-border rounded-lg space-y-3">
                         <div className="flex items-center gap-2 flex-wrap">
                           <p className="text-sm font-semibold text-primary">Proprietário {i + 1}</p>
-                          <VigenciaLeiBadge value={owner?.vigencia_lei_divorcio} />
                           {fonte === 'averbacao_anterior' && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-info/10 text-info border border-info/30">
                               dados de averbação anterior
@@ -334,7 +347,12 @@ export default function AnalysisPage() {
                           <FieldWithAiIndicator label="Data de nascimento" value={owner?.birth_date} onChange={v => updateOwner({ birth_date: v })} />
                           <FieldWithAiIndicator label="Nacionalidade" value={owner?.nationality} onChange={v => updateOwner({ nationality: v })} />
                           <FieldWithAiIndicator label="Estado civil" value={owner?.marital_status} onChange={v => updateOwner({ marital_status: v })} />
-                          <FieldWithAiIndicator label="Regime de casamento" value={owner?.marriage_regime} onChange={v => updateOwner({ marriage_regime: v })} />
+                          {/* F3 — Regime composto com referência à Lei 6.515/77 no mesmo input */}
+                          <FieldWithAiIndicator
+                            label="Regime de casamento"
+                            value={composeRegimeWithLei(owner?.marriage_regime, owner?.vigencia_lei_divorcio)}
+                            onChange={v => updateOwner({ marriage_regime: v, vigencia_lei_divorcio: undefined })}
+                          />
                           <FieldWithAiIndicator label="Participação (%)" value={owner?.share_percentage} onChange={v => updateOwner({ share_percentage: v })} />
                           <div className="col-span-2">
                             <FieldWithAiIndicator label="Endereço" value={owner?.address} onChange={v => updateOwner({ address: v })} multiline />
