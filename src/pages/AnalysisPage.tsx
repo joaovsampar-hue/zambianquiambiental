@@ -27,7 +27,7 @@ export function deduplicateConjuges(proprietarios: any[]): any[] {
   for (let i = 0; i < proprietarios.length; i++) {
     if (removedIndexes.has(i)) continue;
 
-    const a = proprietarios[i];
+    const a = { ...proprietarios[i] };
     const aCpf = normalized(a.cpf_cnpj);
     const aConjugeCpf = normalized(a.spouse?.cpf);
     const aConjugeNome = (a.spouse?.name ?? '').trim().toUpperCase();
@@ -35,50 +35,48 @@ export function deduplicateConjuges(proprietarios: any[]): any[] {
     for (let j = i + 1; j < proprietarios.length; j++) {
       if (removedIndexes.has(j)) continue;
 
-      const b = proprietarios[j];
+      const b = { ...proprietarios[j] };
       const bCpf = normalized(b.cpf_cnpj);
       const bNome = (b.name ?? '').trim().toUpperCase();
 
-      // Detecta espelhamento: cônjuge de A é o próprio B
       const conjugeMatch =
         (aCpf && aConjugeCpf && aConjugeCpf === bCpf) ||
         (aConjugeNome && bNome && aConjugeNome === bNome);
 
-      if (conjugeMatch) {
-        // Se B tem participação própria preenchida, é co-proprietário legítimo —
-        // não remover. Apenas garante que o cônjuge de A está preenchido.
-        const bHasShare =
-          b.share_percentage != null &&
-          String(b.share_percentage).trim() !== '' &&
-          String(b.share_percentage).trim() !== '0';
+      if (!conjugeMatch) continue;
 
-        if (!bHasShare) {
-          // B não tem participação própria — é cônjuge espelhado. Remover B da lista.
-          if (!a.spouse) a.spouse = {};
-          if (!a.spouse.cpf && b.cpf_cnpj) a.spouse.cpf = b.cpf_cnpj;
-          if (!a.spouse.name && b.name) a.spouse.name = b.name;
-          if (!a.spouse.rg && b.rg) a.spouse.rg = b.rg;
-          removedIndexes.add(j);
-          break;
-        } else {
-          // Ambos têm participação — são co-proprietários legítimos.
-          // Manter os dois mas limpar referências cruzadas de cônjuge:
-          // se o cônjuge de A aponta para B, limpar (B já aparece como proprietário).
-          // se o cônjuge de B aponta para A, limpar (A já aparece como proprietário).
-          const aRefB =
-            (aConjugeCpf && bCpf && aConjugeCpf === bCpf) ||
-            (aConjugeNome && bNome && aConjugeNome === bNome);
-          const bRefA =
-            (normalized(b.spouse?.cpf) && aCpf && normalized(b.spouse?.cpf) === aCpf) ||
-            ((b.spouse?.name ?? '').trim().toUpperCase() &&
-              (a.name ?? '').trim().toUpperCase() &&
-              (b.spouse?.name ?? '').trim().toUpperCase() === (a.name ?? '').trim().toUpperCase());
-          if (aRefB) a.spouse = undefined;
-          if (bRefA) b.spouse = undefined;
+      const bHasShare =
+        b.share_percentage != null &&
+        String(b.share_percentage).trim() !== '' &&
+        String(b.share_percentage).trim() !== '0';
+
+      if (!bHasShare) {
+        // B é cônjuge espelhado sem participação — remover da lista
+        if (!a.spouse) a.spouse = {};
+        if (!a.spouse.cpf && b.cpf_cnpj) a.spouse.cpf = b.cpf_cnpj;
+        if (!a.spouse.name && b.name) a.spouse.name = b.name;
+        if (!a.spouse.rg && b.rg) a.spouse.rg = b.rg;
+        proprietarios[i] = a;
+        removedIndexes.add(j);
+      } else {
+        // Ambos são co-proprietários — limpar referência cruzada de cônjuge
+        const aSpouseCpf = normalized(a.spouse?.cpf);
+        const aSpouseName = (a.spouse?.name ?? '').trim().toUpperCase();
+        if (aSpouseCpf === bCpf || aSpouseName === bNome) {
+          a.spouse = undefined;
+          proprietarios[i] = a;
+        }
+        const bSpouseCpf = normalized(b.spouse?.cpf);
+        const bSpouseName = (b.spouse?.name ?? '').trim().toUpperCase();
+        const aNome = (a.name ?? '').trim().toUpperCase();
+        if (bSpouseCpf === aCpf || bSpouseName === aNome) {
+          b.spouse = undefined;
+          proprietarios[j] = b;
         }
       }
+      break;
     }
-    result.push(a);
+    result.push(proprietarios[i]);
   }
 
   return result;
@@ -216,7 +214,11 @@ export default function AnalysisPage() {
   if (analysis && !formData) {
     const ed = (analysis.extracted_data as any) ?? {};
     if (ed.owners) {
-      ed.owners = deduplicateConjuges(ed.owners);
+      try {
+        ed.owners = deduplicateConjuges(ed.owners);
+      } catch (e) {
+        console.error('deduplicateConjuges error:', e);
+      }
     }
     setFormData(ed);
   }
