@@ -556,24 +556,22 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedNeighbors, registeredNeighbors]);
 
-  // Estilo aplicado a um polígono vizinho conforme estado atual:
-  //   - VERDE  → já cadastrado como confrontante (precedência máxima)
-  //   - AMARELO/LARANJA TRACEJADO → selecionado no painel pra cadastro em lote
-  //     (cor distinta do azul base pra dar feedback visual claro de seleção)
-  //   - AZUL CLARO → detectado mas não selecionado
-  // ITEM 6 — Camada 3 (Confrontantes): azul #378ADD com fill opacity 0.25,
-  // stroke #185FA5 1.5px com opacidade 0.9. Já cadastrados ganham destaque verde.
+  // F5 — Confrontantes em AMARELO (#EF9F27 fill 0.25, stroke #BA7517 1.5px).
+  // Selecionado/cadastrado ganham realce mais forte para diferenciação visual.
   const styleForNeighbor = (car: string): L.PathOptions => {
     const sanitized = sanitizeCar(car);
     const isRegistered = registeredNeighborsRef.current.has(sanitized);
-    if (isRegistered) {
-      return { color: '#155E48', weight: 2, fillColor: '#1D9E75', fillOpacity: 0.35, opacity: 1 };
-    }
     const isSelected = selectedNeighborsRef.current.has(sanitized);
-    return isSelected
-      // Selecionado — amarelo vibrante, stroke escuro tracejado pra contrastar com o azul base
-      ? { color: '#B45309', weight: 3, fillColor: '#F59E0B', fillOpacity: 0.55, opacity: 1, dashArray: '4 2' }
-      : { color: '#185FA5', weight: 1.5, fillColor: '#378ADD', fillOpacity: 0.25, opacity: 0.9 };
+    if (isSelected) {
+      // Selecionado — amarelo vibrante tracejado para contrastar com o estado base
+      return { color: '#7C2D12', weight: 2.5, fillColor: '#F59E0B', fillOpacity: 0.55, opacity: 1, dashArray: '4 2' };
+    }
+    if (isRegistered) {
+      // Cadastrado — mesma família amarela, porém mais intenso e sólido
+      return { color: '#7C2D12', weight: 2, fillColor: '#EF9F27', fillOpacity: 0.45, opacity: 1 };
+    }
+    // Estado base (detectado, não cadastrado, não selecionado)
+    return { color: '#BA7517', weight: 1.5, fillColor: '#EF9F27', fillOpacity: 0.25, opacity: 0.9 };
   };
 
   const renderNeighbors = (fc: GeoJSON.FeatureCollection, mainCar: string) => {
@@ -600,8 +598,9 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
         const showAddBtn = !!onNeighborPick;
         const showToggleBtn = !!onNeighborToggleRef.current;
 
-        // Re-renderiza o conteúdo do popup a cada abertura — o estado de
-        // seleção muda dinamicamente e o label do botão precisa refletir isso.
+        // F7 — Mesmo se o CAR já existir como cadastrado, o popup SEMPRE
+        // mostra o botão de adicionar. Isso permite reinserir após exclusão
+        // (e cria registros novos sem checagem de "já cadastrado").
         const buildHtml = () => {
           const isRegistered = registeredNeighborsRef.current.has(sanitized);
           const isSelected = selectedNeighborsRef.current.has(sanitized);
@@ -610,13 +609,11 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
             ? 'bg-primary text-primary-foreground'
             : 'bg-secondary text-secondary-foreground border border-border';
           const headerLabel = isRegistered
-            ? '<span class="font-semibold text-success">✓ Confrontante já cadastrado</span>'
+            ? '<span class="font-semibold text-success">✓ Já cadastrado (clique abaixo para readicionar)</span>'
             : '<span class="font-semibold">Imóvel vizinho (SICAR)</span>';
-          const actionsHtml = isRegistered
-            ? '<div class="text-[11px] text-muted-foreground italic">Este imóvel já consta na lista de confrontantes.</div>'
-            : `<div class="flex flex-wrap gap-1.5 pt-1">
+          const actionsHtml = `<div class="flex flex-wrap gap-1.5 pt-1">
                 ${showToggleBtn ? `<button id="${toggleBtnId}" class="px-2 py-1 rounded ${toggleClass} text-xs">${toggleLabel}</button>` : ''}
-                ${showAddBtn ? `<button id="${addBtnId}" class="px-2 py-1 rounded bg-secondary text-secondary-foreground text-xs border border-border">+ Listar como confrontante</button>` : ''}
+                ${showAddBtn ? `<button id="${addBtnId}" class="px-2 py-1 rounded bg-secondary text-secondary-foreground text-xs border border-border">+ Adicionar como confrontante</button>` : ''}
               </div>`;
           return `
             <div class="text-xs space-y-1.5" style="min-width:240px">
@@ -788,7 +785,7 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     if (!uf && carInput) uf = parseCarUF(carInput);
     if (!uf) {
       // Sem UF não dá pra consultar o WFS por ponto — popup informativo.
-      L.popup({ closeButton: true, autoClose: true })
+      L.popup({ closeButton: true, autoClose: true, closeOnClick: true })
         .setLatLng([lat, lng])
         .setContent(
           '<div class="text-xs">Selecione uma UF (busque por CAR primeiro) para identificar imóveis no clique.</div>',
@@ -798,7 +795,8 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     }
 
     setIdentifying(true);
-    const loadingPopup = L.popup({ closeButton: false, autoClose: false, maxWidth: 340 })
+    // F8 — Popup com botão de fechar visível e fechamento ao clicar fora.
+    const loadingPopup = L.popup({ closeButton: true, autoClose: false, closeOnClick: true, maxWidth: 340 })
       .setLatLng([lat, lng])
       .setContent('<div class="text-xs">Consultando SICAR…</div>')
       .openOn(map);
@@ -820,8 +818,6 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
                ${sigefHtml}
              </div>`,
           );
-          // Mostra o botão de fechar agora que o conteúdo está estável.
-          (loadingPopup.options as any).closeButton = true;
         } else {
           loadingPopup.setContent(
             '<div class="text-xs">Nenhum imóvel SICAR ou SIGEF neste ponto.</div>',
