@@ -103,7 +103,20 @@ Ao extrair o regime de casamento de um proprietário, identifique também o enqu
 Adicione o campo "vigencia_lei_divorcio" ao objeto de cada proprietário no JSON retornado.
 
 INSTRUÇÃO 8 — CCIR E REGISTRO NO INCRA:
-O número do CCIR pode não aparecer com essa denominação na matrícula. Pesquise também por: 'registrado no INCRA sob o número', 'cadastrado no INCRA', 'inscrição no INCRA nº', 'registro INCRA nº', 'matrícula no INCRA', ou qualquer menção a número de cadastro junto ao INCRA. Se encontrar esse número por essa via alternativa, retorne-o no campo "identification.ccir" normalmente e adicione "identification.ccir_fonte": 'registro_incra' para indicar que foi identificado por denominação alternativa. Se encontrar pela denominação CCIR padrão, use "identification.ccir_fonte": 'ccir'. Se não encontrar de nenhuma forma, retorne "identification.ccir": null e "identification.ccir_fonte": 'nao_encontrado'.`;
+O número do CCIR pode não aparecer com essa denominação na matrícula. Pesquise também por: 'registrado no INCRA sob o número', 'cadastrado no INCRA', 'inscrição no INCRA nº', 'registro INCRA nº', 'matrícula no INCRA', ou qualquer menção a número de cadastro junto ao INCRA. Se encontrar esse número por essa via alternativa, retorne-o no campo "identification.ccir" normalmente e adicione "identification.ccir_fonte": 'registro_incra' para indicar que foi identificado por denominação alternativa. Se encontrar pela denominação CCIR padrão, use "identification.ccir_fonte": 'ccir'. Se não encontrar de nenhuma forma, retorne "identification.ccir": null e "identification.ccir_fonte": 'nao_encontrado'.
+
+INSTRUÇÃO 9 — CASAL COMO PROPRIETÁRIO ÚNICO:
+Quando dois proprietários do mesmo ato de aquisição forem casados entre si — identificável porque o cônjuge de um é o nome/CPF do outro — NÃO os retorne como dois proprietários separados. Retorne SOMENTE O PRIMEIRO listado como proprietário principal, com o segundo preenchido no campo cônjuge desse proprietário.
+
+Sinais de que são o mesmo casal:
+- O campo nome do cônjuge do proprietário A é igual ao nome do proprietário B
+- O campo CPF do cônjuge do proprietário A é igual ao CPF do proprietário B
+- Ambos têm o mesmo endereço
+- Ambos têm o mesmo regime de casamento
+
+Quando identificar esse padrão: mantenha o proprietário A (primeiro listado no ato) com todos os dados completos. No campo cônjuge dele, preencha com os dados do proprietário B. Remova completamente o proprietário B da lista owners.
+
+Esta regra só se aplica quando os dois são claramente o mesmo casal. Se dois proprietários forem casados com TERCEIROS diferentes (não entre si), ambos devem ser listados normalmente como proprietários separados.`;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });

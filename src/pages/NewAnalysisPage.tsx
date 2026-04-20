@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
 import { Upload, FileText, Loader2 } from 'lucide-react';
+import { deduplicateConjuges } from './AnalysisPage';
 
 export default function NewAnalysisPage() {
   const { user } = useAuth();
@@ -101,10 +102,16 @@ export default function NewAnalysisPage() {
 
       // Step 5: Update analysis with results
       setStep('Salvando resultados...');
+      
+      const extracted_data = funcData.extracted_data;
+      if (extracted_data?.owners) {
+        extracted_data.owners = deduplicateConjuges(extracted_data.owners);
+      }
+
       const { error: updateError } = await supabase
         .from('analyses')
         .update({
-          extracted_data: funcData.extracted_data,
+          extracted_data: extracted_data,
           alerts: funcData.alerts,
           status: 'completed',
         })

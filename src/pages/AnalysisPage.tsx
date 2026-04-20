@@ -15,6 +15,52 @@ import { exportToWord, exportToPdf } from '@/lib/exportAnalysis';
 import BoundariesTab from '@/components/analysis/BoundariesTab';
 import DeleteButton from '@/components/DeleteButton';
 
+export function deduplicateConjuges(proprietarios: any[]): any[] {
+  if (!proprietarios || proprietarios.length < 2) return proprietarios;
+
+  const normalized = (s: string | null | undefined) =>
+    (s ?? '').replace(/\D/g, '').trim().toUpperCase();
+
+  const result: any[] = [];
+  const removedIndexes = new Set();
+
+  for (let i = 0; i < proprietarios.length; i++) {
+    if (removedIndexes.has(i)) continue;
+
+    const a = proprietarios[i];
+    const aCpf = normalized(a.cpf_cnpj);
+    const aConjugeCpf = normalized(a.spouse?.cpf);
+    const aConjugeNome = (a.spouse?.name ?? '').trim().toUpperCase();
+
+    for (let j = i + 1; j < proprietarios.length; j++) {
+      if (removedIndexes.has(j)) continue;
+
+      const b = proprietarios[j];
+      const bCpf = normalized(b.cpf_cnpj);
+      const bNome = (b.name ?? '').trim().toUpperCase();
+
+      // Detecta espelhamento: cônjuge de A é o próprio B
+      const conjugeMatch =
+        (aCpf && aConjugeCpf && aConjugeCpf === bCpf) ||
+        (aConjugeNome && bNome && aConjugeNome === bNome);
+
+      if (conjugeMatch) {
+        // Mantém A como proprietário principal.
+        // Preenche dados do cônjuge com os dados de B (se A não tiver).
+        if (!a.spouse) a.spouse = {};
+        if (!a.spouse.cpf && b.cpf_cnpj) a.spouse.cpf = b.cpf_cnpj;
+        if (!a.spouse.name && b.name) a.spouse.name = b.name;
+        if (!a.spouse.rg && b.rg) a.spouse.rg = b.rg;
+        removedIndexes.add(j); // Remove B da lista
+        break;
+      }
+    }
+    result.push(a);
+  }
+
+  return result;
+}
+
 function FieldWithAiIndicator({ label, value, onChange, required, multiline }: {
   label: string; value: unknown; onChange: (v: string) => void; required?: boolean; multiline?: boolean;
 }) {
@@ -158,6 +204,9 @@ export default function AnalysisPage() {
   // Initialize form when data loads
   if (analysis && !formData) {
     const ed = (analysis.extracted_data as any) ?? {};
+    if (ed.owners) {
+      ed.owners = deduplicateConjuges(ed.owners);
+    }
     setFormData(ed);
   }
 
