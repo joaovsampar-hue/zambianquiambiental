@@ -88,7 +88,19 @@ Ao extrair o regime de casamento de um proprietário, identifique também o enqu
 Adicione o campo "vigencia_lei_divorcio" ao objeto de cada proprietário no JSON retornado.
 
 INSTRUÇÃO 8 — CCIR E REGISTRO NO INCRA:
-O número do CCIR pode não aparecer com essa denominação na matrícula. Pesquise também por: 'registrado no INCRA sob o número', 'cadastrado no INCRA', 'inscrição no INCRA nº', 'registro INCRA nº', 'matrícula no INCRA', ou qualquer menção a número de cadastro junto ao INCRA. Se encontrar esse número por essa via alternativa, retorne-o no campo "ccir" normalmente e use "ccir_fonte": 'registro_incra'. Se encontrar pela denominação CCIR padrão, use "ccir_fonte": 'ccir'. Se não encontrar de nenhuma forma, retorne "ccir": null e "ccir_fonte": 'nao_encontrado'.`;
+O número do CCIR pode não aparecer com essa denominação na matrícula. Pesquise também por: 'registrado no INCRA sob o número', 'cadastrado no INCRA', 'inscrição no INCRA nº', 'registro INCRA nº', 'matrícula no INCRA', ou qualquer menção a número de cadastro junto ao INCRA. Se encontrar esse número por essa via alternativa, retorne-o no campo "ccir" normalmente e use "ccir_fonte": 'registro_incra'. Se encontrar pela denominação CCIR padrão, use "ccir_fonte": 'ccir'. Se não encontrar de nenhuma forma, retorne "ccir": null e "ccir_fonte": 'nao_encontrado'.
+
+INSTRUÇÃO 9 — CASAL COMO PROPRIETÁRIO ÚNICO:
+Quando dois proprietários do mesmo ato de aquisição forem casados entre si — identificável porque o cônjuge de um é o nome ou CPF do outro — NÃO os retorne como dois proprietários separados. Retorne SOMENTE O PRIMEIRO listado como proprietário principal, com o segundo preenchido no campo cônjuge desse proprietário.
+
+Sinais de que são o mesmo casal:
+- O campo conjuge_nome do proprietário A é igual ao nome do proprietário B
+- O campo conjuge_cpf do proprietário A é igual ao CPF do proprietário B
+- Ambos têm o mesmo endereço e regime de casamento
+
+Quando identificar esse padrão: mantenha o proprietário A com todos os dados. Preencha o campo cônjuge com os dados do proprietário B. Remova completamente o proprietário B da lista proprietarios_atuais.
+
+Esta regra NÃO se aplica quando dois proprietários são casados com terceiros diferentes — nesse caso ambos permanecem na lista normalmente.`;
 
 const RETRY_PROMPT = (nome: string) =>
   `Na análise anterior NÃO foram encontrados CPF e RG do proprietário atual "${nome}". Pesquise em TODOS os atos anteriores desta matrícula — compra e venda, inventários, formais de partilha, averbações — e retorne quaisquer dados documentais (CPF, RG, órgão emissor, data de nascimento) associados ao nome "${nome}". Retorne SOMENTE JSON no formato:
@@ -100,6 +112,38 @@ const RETRY_PROMPT = (nome: string) =>
   "data_nascimento": string | null,
   "fonte": "averbacao_anterior" | "nao_encontrado"
 }`;
+
+function deduplicateConjuges(proprietarios: any[]): any[] {
+  if (!proprietarios || proprietarios.length < 2) return proprietarios;
+  const normalized = (s: string | null | undefined) =>
+    (s ?? '').replace(/\D/g, '').trim().toUpperCase();
+  const result: any[] = [];
+  const removedIndexes = new Set();
+  for (let i = 0; i < proprietarios.length; i++) {
+    if (removedIndexes.has(i)) continue;
+    const a = proprietarios[i];
+    const aConjugeCpf = normalized(a.conjuge_cpf);
+    const aConjugeNome = (a.conjuge_nome ?? '').trim().toUpperCase();
+    for (let j = i + 1; j < proprietarios.length; j++) {
+      if (removedIndexes.has(j)) continue;
+      const b = proprietarios[j];
+      const bCpf = normalized(b.cpf);
+      const bNome = (b.nome ?? '').trim().toUpperCase();
+      const conjugeMatch =
+        (aConjugeCpf && bCpf && aConjugeCpf === bCpf) ||
+        (aConjugeNome && bNome && aConjugeNome === bNome);
+      if (conjugeMatch) {
+        if (!a.conjuge_cpf && b.cpf) a.conjuge_cpf = b.cpf;
+        if (!a.conjuge_nome && b.nome) a.conjuge_nome = b.nome;
+        if (!a.conjuge_rg && b.rg) a.conjuge_rg = b.rg;
+        removedIndexes.add(j);
+        break;
+      }
+    }
+    result.push(a);
+  }
+  return result;
+}
 
 const tryParseJson = (content: string): any => {
   try {
@@ -260,6 +304,10 @@ serve(async (req) => {
           console.error(`Retry falhou para ${prop.nome}:`, err);
         }
       }
+    }
+
+    if (parsed.proprietarios_atuais) {
+      parsed.proprietarios_atuais = deduplicateConjuges(parsed.proprietarios_atuais);
     }
 
     return new Response(JSON.stringify(parsed), {
