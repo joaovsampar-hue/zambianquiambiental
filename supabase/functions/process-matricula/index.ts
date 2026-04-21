@@ -239,25 +239,69 @@ serve(async (req) => {
     const aiResponse = await response.json();
     const content = aiResponse.choices?.[0]?.message?.content ?? "";
 
-    // Parse JSON from AI response
-    let parsed;
-    try {
-      // Try to extract JSON from possible markdown code blocks
-      const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/\{[\s\S]*\}/);
-      const jsonStr = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : content;
-      parsed = JSON.parse(jsonStr);
-    } catch {
-      console.error("Failed to parse AI response:", content);
-      parsed = { identification: {}, owners: [{}], boundaries: {}, encumbrances: {}, transfers: [{}] };
+    const tryParse = (raw: string) => {
+      try {
+        const m = raw.match(/```json\s*([\s\S]*?)\s*```/) || raw.match(/\{[\s\S]*\}/);
+        return JSON.parse(m ? (m[1] || m[0]) : raw);
+      } catch { return null; }
+    };
+
+    let parsed = tryParse(content);
+
+    // Retry quando parse falhou ou owners estão todos vazios
+    const ownersEmpty = !parsed || !Array.isArray(parsed.owners) ||
+      parsed.owners.length === 0 ||
+      parsed.owners.every((o: any) => !o?.name);
+
+    if (ownersEmpty) {
+      console.log("process-matricula: 1ª chamada veio vazia, executando retry");
+      const retryResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${lovableApiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash",
+          messages: [
+            { role: "system", content: SYSTEM_PROMPT },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: "A análise anterior retornou campos vazios. Tente novamente com atenção máxima ao texto. O documento pode ter marca d'água intensa, ser datilografado ou ter baixa qualidade. Extraia qualquer dado legível. Para campos ilegíveis use '[ilegível]' em vez de string vazia.",
+                },
+                {
+                  type: "image_url",
+                  image_url: { url: `data:application/pdf;base64,${base64}` },
+                },
+              ],
+            },
+          ],
+        }),
+      });
+      if (retryResp.ok) {
+        const retryJson = await retryResp.json();
+        const retryContent = retryJson.choices?.[0]?.message?.content ?? "";
+        const retryParsed = tryParse(retryContent);
+        if (retryParsed && typeof retryParsed === "object") {
+          parsed = retryParsed;
+        }
+      }
+    }
+
+    if (!parsed || typeof parsed !== "object") {
+      parsed = { identification: {}, owners: [], boundaries: {}, encumbrances: {}, transfers: [] };
     }
 
     const extracted_data = {
       identification: parsed.identification ?? {},
-      owners: parsed.owners ?? [{}],
+      owners: parsed.owners ?? [],
       usufructuaries: parsed.usufructuaries ?? [],
       boundaries: parsed.boundaries ?? {},
       encumbrances: parsed.encumbrances ?? {},
-      transfers: parsed.transfers ?? [{}],
+      transfers: parsed.transfers ?? [],
     };
 
     const alerts = parsed.alerts ?? [];
