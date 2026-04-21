@@ -95,12 +95,20 @@ Para cada proprietário, extraia o estado civil declarado no ato de aquisição 
 INSTRUÇÃO 6 — ÔNUS REAIS — IDENTIFICAÇÃO DE STATUS (HIPOTECAS, ALIENAÇÕES FIDUCIÁRIAS E PENHORAS):
 Para CADA ônus real encontrado (hipoteca, alienação fiduciária e penhora), verifique se existe ato posterior de cancelamento, baixa, quitação ou liberação na mesma matrícula que faça referência ao número do ato, livro ou folha do ônus original. Quando houver mais de um ônus do mesmo tipo, retorne o respectivo campo SEMPRE como ARRAY de objetos no formato: [{ "descricao": "...", "ato_origem": "...", "status_<tipo>": "ativa" | "cancelada" | "indefinida", "ato_cancelamento": "..." | null }]. O campo de status segue a convenção: hipoteca → "status_hipoteca"; alienação fiduciária → "status_fiduciaria"; penhora → "status_penhora". Use "cancelada" quando encontrar ato de baixa/cancelamento (registrando o número do ato em "ato_cancelamento"); "ativa" quando NÃO houver ato de cancelamento; "indefinida" se o documento estiver incompleto ou ilegível e não for possível determinar. NUNCA retorne ônus como texto corrido livre — sempre como array estruturado mesmo quando houver apenas 1 (um) registro. Os campos "encumbrances.fiduciary_alienation", "encumbrances.seizure" e "encumbrances.mortgage" devem ser ARRAYS quando houver registros, ou strings vazias "" quando não houver nenhum.
 
-INSTRUÇÃO 7 — REGIME DE CASAMENTO E LEI 6.515/77:
-Ao extrair o regime de casamento de um proprietário, identifique também o enquadramento legal conforme a data do casamento:
-- Casamento anterior a 26/12/1977 (antes da vigência da Lei 6.515/77): regime padrão era comunhão universal de bens, salvo pacto antenupcial em contrário. Retorne vigencia_lei_divorcio: 'antes_da_vigencia'.
-- Casamento a partir de 26/12/1977 (na vigência ou após): regime padrão passou a ser comunhão parcial de bens. Retorne vigencia_lei_divorcio: 'apos_vigencia'.
-- Se a data do casamento não estiver disponível mas o regime estiver explícito na matrícula, retorne vigencia_lei_divorcio: 'nao_identificado'.
-Adicione o campo "vigencia_lei_divorcio" ao objeto de cada proprietário no JSON retornado.
+INSTRUÇÃO 7 — REGIME DE CASAMENTO E VIGÊNCIA DA LEI 6.515/77:
+
+REGRA PRINCIPAL — LEITURA DIRETA DO TEXTO:
+A matrícula frequentemente declara explicitamente a relação com a Lei 6.515/77 na qualificação do proprietário ou na averbação de casamento. Pesquise essas expressões e use-as diretamente:
+- Se o texto contiver: 'na vigência da Lei 6.515/77', 'na vigência da Lei nº 6.515/77', 'após a Lei 6.515/77', 'sob a égide da Lei 6.515' → retorne vigencia_lei_divorcio: 'apos_vigencia'
+- Se o texto contiver: 'anteriormente à vigência da Lei 6.515/77', 'anterior à vigência da Lei 6.515/77', 'antes da vigência da Lei 6.515', 'sob o regime anterior à Lei 6.515' → retorne vigencia_lei_divorcio: 'antes_da_vigencia'
+
+REGRA SECUNDÁRIA — FALLBACK POR DATA (somente se o texto não mencionar a lei):
+Se a matrícula não mencionar explicitamente a relação com a Lei 6.515/77, usar a data do casamento como critério:
+- Casamento anterior a 26/12/1977 → vigencia_lei_divorcio: 'antes_da_vigencia'
+- Casamento a partir de 26/12/1977 → vigencia_lei_divorcio: 'apos_vigencia'
+- Data do casamento não disponível e texto sem menção à lei → vigencia_lei_divorcio: 'nao_identificado'
+
+A leitura direta do texto da matrícula SEMPRE tem precedência sobre o cálculo por data.
 
 INSTRUÇÃO 8 — CCIR E REGISTRO NO INCRA:
 O número do CCIR pode não aparecer com essa denominação na matrícula. Pesquise também por: 'registrado no INCRA sob o número', 'cadastrado no INCRA', 'inscrição no INCRA nº', 'registro INCRA nº', 'matrícula no INCRA', ou qualquer menção a número de cadastro junto ao INCRA. Se encontrar esse número por essa via alternativa, retorne-o no campo "identification.ccir" normalmente e adicione "identification.ccir_fonte": 'registro_incra' para indicar que foi identificado por denominação alternativa. Se encontrar pela denominação CCIR padrão, use "identification.ccir_fonte": 'ccir'. Se não encontrar de nenhuma forma, retorne "identification.ccir": null e "identification.ccir_fonte": 'nao_encontrado'.
