@@ -86,6 +86,23 @@ O documento pode ter sido produzido em máquina de escrever, com espaçamento ir
 INSTRUÇÃO 3 — IDENTIFICAÇÃO DO PROPRIETÁRIO ATUAL EM MATRÍCULAS COM MUITAS TRANSMISSÕES:
 A matrícula pode conter dezenas de atos ao longo dos anos. Para o array "owners" (proprietários atuais), retorne SOMENTE os últimos adquirentes de cada fração do imóvel — ou seja, aqueles que constam como compradores, donatários ou herdeiros em um ato sem que exista ato posterior transferindo a mesma fração a outra pessoa. Ignore todos os transmitentes e adquirentes intermediários. Se houver dúvida sobre quem é o atual titular de uma fração específica, retorne o dado com o campo adicional "verificar_titularidade": true dentro do objeto do proprietário. Nunca retorne como proprietário atual alguém que já conste como vendedor ou transmitente em ato posterior da mesma matrícula.
 
+INSTRUÇÃO 3B — VERIFICAÇÃO OBRIGATÓRIA DE FALECIMENTO (executa imediatamente após identificar os proprietários pela Instrução 3):
+
+Para CADA proprietário identificado em owners, varrer imediatamente TODAS as averbações da matrícula do início ao fim buscando o nome desse proprietário junto com qualquer das expressões: 'falecimento', 'falecido', 'falecida', 'óbito', 'ocorreu o falecimento', 'certidão de óbito', 'de cujus', 'espólio de', 'espólio do', 'por ato de ofício', 'comunicamos o falecimento', 'em virtude do falecimento'.
+
+ESTA VARREDURA É OBRIGATÓRIA E NÃO PODE SER IGNORADA. Um proprietário que parece 'último adquirente' pela Instrução 3 pode ter falecido depois — a averbação de óbito cancela a titularidade.
+
+Se encontrar averbação de óbito de um proprietário listado em owners:
+→ Remover esse proprietário COMPLETAMENTE de owners — ele NUNCA aparece como proprietário atual.
+→ Verificar se há formal de partilha ou novo registro posterior ao óbito. Se houver, os herdeiros averbados entram em owners com suas frações.
+→ Se NÃO houver novo titular registrado para a fração, adicionar dois alertas críticos:
+   { 'severity': 'critical', 'message': '[FALECIMENTO] O proprietário [NOME] consta como falecido conforme [NÚMERO DA AVERBAÇÃO, ex: AV.25-M.1561], em [DATA]. Fração afetada: [X/Y].' }
+   { 'severity': 'critical', 'message': '[ESPÓLIO PENDENTE] A fração de [X/Y] pertencente a [NOME] está sem titular registrado. Necessário inventário e averbação dos herdeiros antes do georreferenciamento.' }
+
+PRECEDÊNCIA ABSOLUTA: óbito averbado sempre cancela a titularidade, mesmo que o ato de aquisição seja mais recente que a maioria dos outros atos.
+
+EXEMPLO CONCRETO: matrícula 1.561 — R.22 atribuiu 3/6 a Aparecida Bottan da Silva. AV.25 registrou falecimento em 22/08/2023. Resultado correto: Aparecida NÃO consta em owners. Silvana (1/6), Vanessa (1/6) e Francisco Carlos (1/6) são os proprietários. Dois alertas críticos gerados.
+
 INSTRUÇÃO 4 — BUSCA DE DADOS DOCUMENTAIS EM ATOS ANTERIORES:
 Para cada proprietário atual identificado, extraia CPF, RG e órgão emissor. Se esses dados não estiverem no último ato de transmissão, pesquise em TODOS os atos anteriores da mesma matrícula — compra e venda, inventários, formais de partilha, averbações de qualquer natureza — e retorne os dados documentais encontrados associados ao mesmo nome. Quando os dados vierem de um ato anterior e não do ato mais recente, adicione o campo "fonte_dados_documentais": "averbacao_anterior" no objeto desse proprietário. Se não encontrar em nenhum ato, retorne null e adicione "fonte_dados_documentais": "nao_encontrado". Se vierem do próprio ato mais recente, use "fonte_dados_documentais": "averbacao_final".
 
@@ -141,23 +158,7 @@ Quando identificar esse padrão: mantenha o proprietário A (primeiro listado no
 
 Esta regra só se aplica quando os dois são claramente o mesmo casal. Se dois proprietários forem casados com TERCEIROS diferentes (não entre si), ambos devem ser listados normalmente como proprietários separados.
 
-INSTRUÇÃO 10 — VERIFICAÇÃO OBRIGATÓRIA DE FALECIMENTO:
-
-Esta verificação deve ser executada APÓS identificar os proprietários atuais e ANTES de retornar o JSON. É obrigatória mesmo que o proprietário seja o último adquirente registrado.
-
-PASSO 1: Para cada proprietário em owners, varrer TODAS as averbações da matrícula — do início ao fim, inclusive últimas páginas — buscando o nome desse proprietário junto com: 'falecimento', 'falecido', 'falecida', 'óbito', 'ocorreu o falecimento', 'certidão de óbito', 'de cujus', 'espólio de', 'por ato de ofício'. Esta varredura é obrigatória mesmo que o proprietário tenha adquirido o imóvel em ato recente.
-
-PASSO 2: Se encontrar averbação de óbito referente a um proprietário de owners:
-- Remover esse proprietário completamente de owners. Ele NUNCA deve aparecer como proprietário atual.
-- Verificar se há formal de partilha ou inventário posterior ao óbito para a fração dele. Se sim, os novos titulares entram em owners com suas respectivas frações.
-- Gerar alerta: { "severity": "critical", "message": "[FALECIMENTO] O proprietário [NOME] consta como falecido na matrícula conforme [NÚMERO DA AVERBAÇÃO]. Data: [DATA SE DISPONÍVEL]. Fração afetada: [X]." }
-
-PASSO 3: Se a fração do falecido não tiver novo titular registrado:
-- Gerar segundo alerta: { "severity": "critical", "message": "[ESPÓLIO PENDENTE] A fração de [X] pertencente a [NOME DO FALECIDO] está sem titular registrado. Necessário inventário e averbação dos herdeiros antes do georreferenciamento." }
-
-PASSO 4 — PRECEDÊNCIA ABSOLUTA: Um ato de óbito averbado SEMPRE cancela a titularidade anterior, independentemente de qual ato constituiu a propriedade. Proprietário falecido NUNCA aparece em owners.
-
-EXEMPLO: matrícula onde R.22 atribuiu 3/6 a Aparecida Bottan da Silva e AV.25 registrou falecimento em 22/08/2023 — Aparecida NÃO deve constar em owners. Gerar alerta de falecimento (AV.25) e alerta de espólio pendente (3/6).`;
+`;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -238,25 +239,69 @@ serve(async (req) => {
     const aiResponse = await response.json();
     const content = aiResponse.choices?.[0]?.message?.content ?? "";
 
-    // Parse JSON from AI response
-    let parsed;
-    try {
-      // Try to extract JSON from possible markdown code blocks
-      const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/\{[\s\S]*\}/);
-      const jsonStr = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : content;
-      parsed = JSON.parse(jsonStr);
-    } catch {
-      console.error("Failed to parse AI response:", content);
-      parsed = { identification: {}, owners: [{}], boundaries: {}, encumbrances: {}, transfers: [{}] };
+    const tryParse = (raw: string) => {
+      try {
+        const m = raw.match(/```json\s*([\s\S]*?)\s*```/) || raw.match(/\{[\s\S]*\}/);
+        return JSON.parse(m ? (m[1] || m[0]) : raw);
+      } catch { return null; }
+    };
+
+    let parsed = tryParse(content);
+
+    // Retry quando parse falhou ou owners estão todos vazios
+    const ownersEmpty = !parsed || !Array.isArray(parsed.owners) ||
+      parsed.owners.length === 0 ||
+      parsed.owners.every((o: any) => !o?.name);
+
+    if (ownersEmpty) {
+      console.log("process-matricula: 1ª chamada veio vazia, executando retry");
+      const retryResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${lovableApiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash",
+          messages: [
+            { role: "system", content: SYSTEM_PROMPT },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: "A análise anterior retornou campos vazios. Tente novamente com atenção máxima ao texto. O documento pode ter marca d'água intensa, ser datilografado ou ter baixa qualidade. Extraia qualquer dado legível. Para campos ilegíveis use '[ilegível]' em vez de string vazia.",
+                },
+                {
+                  type: "image_url",
+                  image_url: { url: `data:application/pdf;base64,${base64}` },
+                },
+              ],
+            },
+          ],
+        }),
+      });
+      if (retryResp.ok) {
+        const retryJson = await retryResp.json();
+        const retryContent = retryJson.choices?.[0]?.message?.content ?? "";
+        const retryParsed = tryParse(retryContent);
+        if (retryParsed && typeof retryParsed === "object") {
+          parsed = retryParsed;
+        }
+      }
+    }
+
+    if (!parsed || typeof parsed !== "object") {
+      parsed = { identification: {}, owners: [], boundaries: {}, encumbrances: {}, transfers: [] };
     }
 
     const extracted_data = {
       identification: parsed.identification ?? {},
-      owners: parsed.owners ?? [{}],
+      owners: parsed.owners ?? [],
       usufructuaries: parsed.usufructuaries ?? [],
       boundaries: parsed.boundaries ?? {},
       encumbrances: parsed.encumbrances ?? {},
-      transfers: parsed.transfers ?? [{}],
+      transfers: parsed.transfers ?? [],
     };
 
     const alerts = parsed.alerts ?? [];
