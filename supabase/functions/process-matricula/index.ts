@@ -154,7 +154,7 @@ Sinais de que são o mesmo casal:
 - Ambos têm o mesmo endereço
 - Ambos têm o mesmo regime de casamento
 
-Quando identificar esse padrão: mantenha o proprietário A (primeiro listado no ato) com todos os dados completos. No campo cônjuge dele, preencha com os dados do proprietário B incluindo share_percentage quando existir: { name, cpf, rg, share_percentage }. Remova completamente o proprietário B da lista owners. O campo share_percentage do proprietário A deve permanecer com o valor original de A — não somar nem substituir pela participação de B.
+Quando identificar esse padrão: mantenha o proprietário A com todos os dados originais intactos, incluindo o share_percentage original de A — NÃO altere, some ou substitua a participação de A. No campo cônjuge, preencha TODOS os dados de B disponíveis: { name: nome de B, cpf: CPF de B, rg: RG de B, share_percentage: participação de B se existir }. É obrigatório incluir o CPF de B no campo cônjuge.cpf quando disponível na matrícula. Remova completamente o proprietário B da lista owners.
 
 Esta regra só se aplica quando os dois são claramente o mesmo casal. Se dois proprietários forem casados com TERCEIROS diferentes (não entre si), ambos devem ser listados normalmente como proprietários separados.
 
