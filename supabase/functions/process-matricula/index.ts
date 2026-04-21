@@ -158,23 +158,7 @@ Quando identificar esse padrão: mantenha o proprietário A (primeiro listado no
 
 Esta regra só se aplica quando os dois são claramente o mesmo casal. Se dois proprietários forem casados com TERCEIROS diferentes (não entre si), ambos devem ser listados normalmente como proprietários separados.
 
-INSTRUÇÃO 10 — VERIFICAÇÃO OBRIGATÓRIA DE FALECIMENTO:
-
-Esta verificação deve ser executada APÓS identificar os proprietários atuais e ANTES de retornar o JSON. É obrigatória mesmo que o proprietário seja o último adquirente registrado.
-
-PASSO 1: Para cada proprietário em owners, varrer TODAS as averbações da matrícula — do início ao fim, inclusive últimas páginas — buscando o nome desse proprietário junto com: 'falecimento', 'falecido', 'falecida', 'óbito', 'ocorreu o falecimento', 'certidão de óbito', 'de cujus', 'espólio de', 'por ato de ofício'. Esta varredura é obrigatória mesmo que o proprietário tenha adquirido o imóvel em ato recente.
-
-PASSO 2: Se encontrar averbação de óbito referente a um proprietário de owners:
-- Remover esse proprietário completamente de owners. Ele NUNCA deve aparecer como proprietário atual.
-- Verificar se há formal de partilha ou inventário posterior ao óbito para a fração dele. Se sim, os novos titulares entram em owners com suas respectivas frações.
-- Gerar alerta: { "severity": "critical", "message": "[FALECIMENTO] O proprietário [NOME] consta como falecido na matrícula conforme [NÚMERO DA AVERBAÇÃO]. Data: [DATA SE DISPONÍVEL]. Fração afetada: [X]." }
-
-PASSO 3: Se a fração do falecido não tiver novo titular registrado:
-- Gerar segundo alerta: { "severity": "critical", "message": "[ESPÓLIO PENDENTE] A fração de [X] pertencente a [NOME DO FALECIDO] está sem titular registrado. Necessário inventário e averbação dos herdeiros antes do georreferenciamento." }
-
-PASSO 4 — PRECEDÊNCIA ABSOLUTA: Um ato de óbito averbado SEMPRE cancela a titularidade anterior, independentemente de qual ato constituiu a propriedade. Proprietário falecido NUNCA aparece em owners.
-
-EXEMPLO: matrícula onde R.22 atribuiu 3/6 a Aparecida Bottan da Silva e AV.25 registrou falecimento em 22/08/2023 — Aparecida NÃO deve constar em owners. Gerar alerta de falecimento (AV.25) e alerta de espólio pendente (3/6).`;
+`;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
