@@ -668,11 +668,18 @@ export function exportToPdf(data: AnalysisData) {
   if (data.alerts.length > 0) {
     addSection('6. Alertas');
     data.alerts.forEach((a: any) => {
-      if (y > 270) { doc.addPage(); y = 20; }
+      if (y > 260) { doc.addPage(); y = 20; }
       const sev = a.severity === 'critical' ? '[CRÍTICO]' : a.severity === 'warning' ? '[ATENÇÃO]' : '[INFO]';
+      const fullText = `${sev} ${a.message ?? ''}`;
       doc.setFontSize(9);
-      doc.text(`${sev} ${a.message}`, 14, y);
-      y += 5;
+      // Cor por severidade
+      if (a.severity === 'critical') doc.setTextColor(180, 0, 0);
+      else if (a.severity === 'warning') doc.setTextColor(180, 100, 0);
+      else doc.setTextColor(30, 80, 160);
+      const lines = doc.splitTextToSize(fullText, pageW - 28);
+      doc.text(lines, 14, y);
+      doc.setTextColor(0, 0, 0);
+      y += lines.length * 4.5 + 3;
     });
   }
 

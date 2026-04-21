@@ -92,6 +92,8 @@ Para cada proprietário atual identificado, extraia CPF, RG e órgão emissor. S
 INSTRUÇÃO 5 — ESTADO CIVIL, REGIME DE CASAMENTO E CÔNJUGE:
 Para cada proprietário, extraia o estado civil declarado no ato de aquisição ou em averbação posterior. Se o proprietário for casado, extraia também: nome completo do cônjuge, CPF do cônjuge quando mencionado, RG do cônjuge quando mencionado, e regime de bens (comunhão parcial, comunhão universal, separação total, separação obrigatória ou participação final nos aquestos). Essas informações costumam aparecer na qualificação do adquirente no ato de compra e venda ou em averbação de pacto antenupcial. Se o estado civil mudou entre atos (ex: solteiro na compra, casado em averbação posterior), retorne o estado civil mais recente.
 
+IMPORTANTE: o campo marriage_regime deve conter SOMENTE o nome do regime de bens (ex: 'comunhão parcial de bens', 'comunhão universal de bens'). NÃO inclua referências à lei, datas ou vigência dentro deste campo — essas informações vão exclusivamente no campo vigencia_lei_divorcio. Exemplos corretos: 'comunhão parcial de bens' (não 'comunhão parcial de bens (Lei 6.515/77)'). O sistema irá compor automaticamente o texto completo usando os dois campos separados.
+
 INSTRUÇÃO 6 — ÔNUS REAIS — IDENTIFICAÇÃO DE STATUS (HIPOTECAS, ALIENAÇÕES FIDUCIÁRIAS E PENHORAS):
 Para CADA ônus real encontrado (hipoteca, alienação fiduciária e penhora), verifique se existe ato posterior de cancelamento, baixa, quitação ou liberação na mesma matrícula que faça referência ao número do ato, livro ou folha do ônus original. Quando houver mais de um ônus do mesmo tipo, retorne o respectivo campo SEMPRE como ARRAY de objetos no formato: [{ "descricao": "...", "ato_origem": "...", "status_<tipo>": "ativa" | "cancelada" | "indefinida", "ato_cancelamento": "..." | null }]. O campo de status segue a convenção: hipoteca → "status_hipoteca"; alienação fiduciária → "status_fiduciaria"; penhora → "status_penhora". Use "cancelada" quando encontrar ato de baixa/cancelamento (registrando o número do ato em "ato_cancelamento"); "ativa" quando NÃO houver ato de cancelamento; "indefinida" se o documento estiver incompleto ou ilegível e não for possível determinar. NUNCA retorne ônus como texto corrido livre — sempre como array estruturado mesmo quando houver apenas 1 (um) registro. Os campos "encumbrances.fiduciary_alienation", "encumbrances.seizure" e "encumbrances.mortgage" devem ser ARRAYS quando houver registros, ou strings vazias "" quando não houver nenhum.
 
@@ -141,11 +143,16 @@ Quando identificar esse padrão: mantenha o proprietário A (primeiro listado no
 
 Esta regra só se aplica quando os dois são claramente o mesmo casal. Se dois proprietários forem casados com TERCEIROS diferentes (não entre si), ambos devem ser listados normalmente como proprietários separados.
 
+REGRAS CRÍTICAS ao mesclar o casal:
+1. O campo share_percentage do proprietário A DEVE permanecer com o valor exato que tinha ANTES da mesclagem. Se A tinha 50%, continua com 50% após remover B. NUNCA recalcule ou mude para 100%.
+2. Os campos name, marital_status e nationality de A devem ser no SINGULAR referindo-se apenas a A (ex: 'casado', 'brasileiro') — NÃO use plural mesmo que o ato da matrícula qualifique o casal conjuntamente como 'casados' ou 'brasileiros'.
+3. O campo spouse.cpf DEVE ser preenchido com o CPF de B quando disponível na matrícula.
+
 INSTRUÇÃO 10 — VERIFICAÇÃO OBRIGATÓRIA DE FALECIMENTO:
 
 Esta verificação deve ser executada APÓS identificar os proprietários atuais e ANTES de retornar o JSON. É obrigatória mesmo que o proprietário seja o último adquirente registrado.
 
-PASSO 1: Para cada proprietário em owners, varrer TODAS as averbações da matrícula — do início ao fim, inclusive últimas páginas — buscando o nome desse proprietário junto com: 'falecimento', 'falecido', 'falecida', 'óbito', 'ocorreu o falecimento', 'certidão de óbito', 'de cujus', 'espólio de', 'por ato de ofício'. Esta varredura é obrigatória mesmo que o proprietário tenha adquirido o imóvel em ato recente.
+PASSO 1 — ESCOPO DA VERIFICAÇÃO: Esta verificação aplica-se EXCLUSIVAMENTE aos proprietários já confirmados como atuais pelo critério da Instrução 3 (últimos adquirentes de cada fração sem transmissão posterior). NÃO aplique esta verificação a transmitentes anteriores, vendedores, herdeiros intermediários ou qualquer pessoa que não esteja listada como proprietária atual. Se uma pessoa aparece na matrícula apenas como vendedora ou como parte de inventário em que outra pessoa recebeu a fração e posteriormente vendeu, ela NÃO deve gerar alerta de falecimento. Para cada proprietário CONFIRMADO em owners, varrer todas as averbações buscando seu nome junto com: 'falecimento', 'falecido', 'falecida', 'óbito', 'ocorreu o falecimento', 'certidão de óbito', 'de cujus', 'espólio de', 'espólio do', 'por ato de ofício'.
 
 PASSO 2: Se encontrar averbação de óbito referente a um proprietário de owners:
 - Remover esse proprietário completamente de owners. Ele NUNCA deve aparecer como proprietário atual.
