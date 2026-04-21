@@ -149,14 +149,26 @@ function EncumbranceTable({ label, items, statusKey }: {
 
 /**
  * F3 — Compõe o valor exibido no campo "Regime de casamento" embutindo
- * a referência à Lei 6.515/77 no mesmo input (sem badge separado).
+ * o período legislativo no mesmo input (sem badge separado).
  */
 function composeRegimeWithLei(regime: unknown, vigencia: unknown): string {
   const base = (regime ?? '').toString().trim();
   if (!base) return '';
-  if (vigencia === 'apos_vigencia') return `${base} (pós Lei 6.515/77)`;
-  if (vigencia === 'antes_da_vigencia') return `${base} (anterior à Lei 6.515/77)`;
-  return base;
+  switch (vigencia) {
+    case 'antes_da_vigencia_6515':
+      return `${base} (anterior à Lei 6.515/77 — CC/1916)`;
+    case 'vigencia_6515':
+    // retrocompatibilidade com valor antigo 'apos_vigencia'
+    case 'apos_vigencia':
+      return `${base} (na vigência da Lei 6.515/77)`;
+    case 'vigencia_cc2002':
+      return `${base} (na vigência do CC/2002 — Lei 10.406/2002)`;
+    // retrocompatibilidade com valor antigo 'antes_da_vigencia'
+    case 'antes_da_vigencia':
+      return `${base} (anterior à Lei 6.515/77 — CC/1916)`;
+    default:
+      return base;
+  }
 }
 
 export default function AnalysisPage() {

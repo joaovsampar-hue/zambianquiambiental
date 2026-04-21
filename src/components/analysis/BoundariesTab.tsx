@@ -23,7 +23,7 @@ interface NeighborOwner {
   rg?: string;
   marital_status?: string;
   marriage_regime?: string;
-  vigencia_lei_divorcio?: 'antes_da_vigencia' | 'apos_vigencia' | 'nao_identificado';
+  vigencia_lei_divorcio?: 'antes_da_vigencia_6515' | 'vigencia_6515' | 'vigencia_cc2002' | 'antes_da_vigencia' | 'apos_vigencia' | 'nao_identificado';
   spouse?: { name?: string; cpf?: string; rg?: string };
   fonte_dados_documentais?: string;
   verificar_titularidade?: boolean;
@@ -518,9 +518,19 @@ export default function BoundariesTab({ formData, updateField, getField }: Bound
                                     value={(() => {
                                       const r = (owner.marriage_regime ?? '').toString().trim();
                                       if (!r) return '';
-                                      if (owner.vigencia_lei_divorcio === 'apos_vigencia') return `${r} (pós Lei 6.515/77)`;
-                                      if (owner.vigencia_lei_divorcio === 'antes_da_vigencia') return `${r} (anterior à Lei 6.515/77)`;
-                                      return r;
+                                      const vig = owner.vigencia_lei_divorcio;
+                                      switch (vig) {
+                                        case 'antes_da_vigencia_6515':
+                                        case 'antes_da_vigencia':
+                                          return `${r} (anterior à Lei 6.515/77 — CC/1916)`;
+                                        case 'vigencia_6515':
+                                        case 'apos_vigencia':
+                                          return `${r} (na vigência da Lei 6.515/77)`;
+                                        case 'vigencia_cc2002':
+                                          return `${r} (na vigência do CC/2002 — Lei 10.406/2002)`;
+                                        default:
+                                          return r;
+                                      }
                                     })()}
                                     onChange={e => updateOwnerPatch({ marriage_regime: e.target.value, vigencia_lei_divorcio: undefined })}
                                     className="text-sm h-8"

@@ -80,20 +80,35 @@ Para cada proprietário atual identificado, extraia CPF, RG e órgão emissor. S
 INSTRUÇÃO 5 — ESTADO CIVIL, REGIME DE CASAMENTO E CÔNJUGE:
 Para cada proprietário, extraia o estado civil declarado no ato de aquisição ou em averbação posterior. Se o proprietário for casado, extraia também: nome completo do cônjuge, CPF do cônjuge quando mencionado, RG do cônjuge quando mencionado, e regime de bens (comunhão parcial, comunhão universal, separação total, separação obrigatória ou participação final nos aquestos). Essas informações costumam aparecer na qualificação do adquirente no ato de compra e venda ou em averbação de pacto antenupcial. Se o estado civil mudou entre atos (ex: solteiro na compra, casado em averbação posterior), retorne o estado civil mais recente.
 
-INSTRUÇÃO 7 — REGIME DE CASAMENTO E VIGÊNCIA DA LEI 6.515/77:
+INSTRUÇÃO 7 — REGIME DE CASAMENTO E ENQUADRAMENTO LEGISLATIVO:
 
-REGRA PRINCIPAL — LEITURA DIRETA DO TEXTO:
-A matrícula frequentemente declara explicitamente a relação com a Lei 6.515/77 na qualificação do proprietário ou na averbação de casamento. Pesquise essas expressões e use-as diretamente:
-- Se o texto contiver: 'na vigência da Lei 6.515/77', 'na vigência da Lei nº 6.515/77', 'após a Lei 6.515/77', 'sob a égide da Lei 6.515' → retorne vigencia_lei_divorcio: 'apos_vigencia'
-- Se o texto contiver: 'anteriormente à vigência da Lei 6.515/77', 'anterior à vigência da Lei 6.515/77', 'antes da vigência da Lei 6.515', 'sob o regime anterior à Lei 6.515' → retorne vigencia_lei_divorcio: 'antes_da_vigencia'
+O campo vigencia_lei_divorcio deve refletir o enquadramento legal do casamento em um dos três períodos históricos da legislação brasileira de regime de bens. Os valores possíveis agora são:
+- 'antes_da_vigencia_6515': casamento sob o Código Civil de 1916 (antes de 26/12/1977) — regime padrão era comunhão universal de bens
+- 'vigencia_6515': casamento sob a Lei 6.515/77 (de 26/12/1977 a 10/01/2003) — regime padrão passou a ser comunhão parcial de bens
+- 'vigencia_cc2002': casamento sob o Código Civil de 2002 — Lei 10.406/2002 (a partir de 11/01/2003) — mantém comunhão parcial como padrão; separação obrigatória para maiores de 70 anos (após Lei 12.344/2010)
+- 'nao_identificado': quando não for possível determinar por nenhuma das regras abaixo
 
-REGRA SECUNDÁRIA — FALLBACK POR DATA (somente se o texto não mencionar a lei):
-Se a matrícula não mencionar explicitamente a relação com a Lei 6.515/77, usar a data do casamento como critério:
-- Casamento anterior a 26/12/1977 → vigencia_lei_divorcio: 'antes_da_vigencia'
-- Casamento a partir de 26/12/1977 → vigencia_lei_divorcio: 'apos_vigencia'
-- Data do casamento não disponível e texto sem menção à lei → vigencia_lei_divorcio: 'nao_identificado'
+REGRA 1 — LEITURA DIRETA DO TEXTO DA MATRÍCULA (tem precedência absoluta):
+Pesquise na qualificação do proprietário e nas averbações de casamento as seguintes expressões e mapeie conforme abaixo:
 
-A leitura direta do texto da matrícula SEMPRE tem precedência sobre o cálculo por data.
+→ 'antes_da_vigencia_6515':
+  Expressões: 'anteriormente à vigência da Lei 6.515/77', 'anterior à vigência da Lei 6.515', 'antes da vigência da Lei 6.515', 'sob o regime anterior à Lei 6.515', 'comunhão universal de bens anteriormente'
+
+→ 'vigencia_6515':
+  Expressões: 'na vigência da Lei 6.515/77', 'na vigência da Lei nº 6.515', 'após a Lei 6.515/77', 'sob a égide da Lei 6.515', 'na vigência da lei do divórcio'
+
+→ 'vigencia_cc2002':
+  Expressões: 'na vigência do Código Civil', 'na vigência do novo Código Civil', 'na vigência da Lei 10.406', 'nos termos do Código Civil de 2002', 'sob o Código Civil vigente'
+
+REGRA 2 — FALLBACK POR DATA DO CASAMENTO (somente se o texto não mencionar a lei):
+Se a matrícula contiver a data do casamento mas não mencionar explicitamente a lei:
+- Casamento antes de 26/12/1977 → 'antes_da_vigencia_6515'
+- Casamento de 26/12/1977 a 10/01/2003 → 'vigencia_6515'
+- Casamento a partir de 11/01/2003 → 'vigencia_cc2002'
+- Data não disponível → 'nao_identificado'
+
+NOTA SOBRE SEPARAÇÃO OBRIGATÓRIA:
+Se a matrícula indicar separação obrigatória de bens por idade (cônjuge idoso), registre o regime como 'separacao_obrigatoria' no campo marriage_regime e identifique o período legislativo normalmente no campo vigencia_lei_divorcio.
 
 INSTRUÇÃO 8 — CCIR E REGISTRO NO INCRA:
 O número do CCIR pode não aparecer com essa denominação na matrícula. Pesquise também por: 'registrado no INCRA sob o número', 'cadastrado no INCRA', 'inscrição no INCRA nº', 'registro INCRA nº', 'matrícula no INCRA', ou qualquer menção a número de cadastro junto ao INCRA. Se encontrar esse número por essa via alternativa, retorne-o no campo "ccir" normalmente e use "ccir_fonte": 'registro_incra'. Se encontrar pela denominação CCIR padrão, use "ccir_fonte": 'ccir'. Se não encontrar de nenhuma forma, retorne "ccir": null e "ccir_fonte": 'nao_encontrado'.
