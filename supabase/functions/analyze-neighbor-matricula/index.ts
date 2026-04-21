@@ -82,6 +82,10 @@ Quando a titularidade de uma fração resultar de formal de partilha ou inventá
 
 INSTRUÇÃO 3B — VERIFICAÇÃO OBRIGATÓRIA DE FALECIMENTO (executa imediatamente após identificar os proprietários pela Instrução 3):
 
+Quando a titularidade de uma fração resultar de formal de partilha ou inventário, extraia a participação de cada herdeiro conforme declarado no ato — ex: '1/6 (um sexto)', '3/6 (três sextos)', '50%'. Preencha o campo share_percentage de cada proprietário com esse valor. Se a matrícula usa frações (ex: 1/6), converta para percentual aproximado ou mantenha a fração — ex: '1/6 (16,67%)'. Nunca deixe share_percentage vazio para herdeiros de partilha.
+
+INSTRUÇÃO 3B — VERIFICAÇÃO OBRIGATÓRIA DE FALECIMENTO (executa imediatamente após identificar os proprietários pela Instrução 3):
+
 Para CADA proprietário identificado em proprietarios_atuais, varrer imediatamente TODAS as averbações da matrícula do início ao fim buscando o nome desse proprietário junto com qualquer das expressões: 'falecimento', 'falecido', 'falecida', 'óbito', 'ocorreu o falecimento', 'certidão de óbito', 'de cujus', 'espólio de', 'espólio do', 'por ato de ofício', 'comunicamos o falecimento', 'em virtude do falecimento'.
 
 ESTA VARREDURA É OBRIGATÓRIA E NÃO PODE SER IGNORADA. Um proprietário que parece 'último adquirente' pela Instrução 3 pode ter falecido depois — a averbação de óbito cancela a titularidade.
