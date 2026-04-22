@@ -24,6 +24,7 @@ export interface DetectedNeighbor {
   area: number;
   municipio: string;
   uf: string;
+  matricula?: string;
 }
 
 interface Props {

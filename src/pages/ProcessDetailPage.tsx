@@ -167,6 +167,7 @@ export default function ProcessDetailPage() {
         property_denomination: `Imóvel rural — ${n.municipio}/${n.uf} (${n.area.toFixed(2)} ha)`,
         phones: [] as any,
         positions: [],
+        registration_number: n.matricula || null,
       }));
       const { error } = await supabase.from('process_neighbors').insert(rows as any);
       if (error) throw error;
@@ -318,7 +319,7 @@ export default function ProcessDetailPage() {
                 setDetected(prev => {
                   // Evita duplicatas — se já estiver na lista, não adiciona novamente.
                   if (prev.some(d => d.car === sanitized)) return prev;
-                  return [...prev, { ...info, car: sanitized }];
+                  return [...prev, { ...info, car: sanitized, matricula: info.matricula }];
                 });
               }}
             />

@@ -76,9 +76,9 @@ interface Props {
   /** Disparado quando o usuário busca um CAR válido pela aba CAR e o polígono é carregado com sucesso. */
   onCarLoaded?: (car: string) => void;
   /** Disparado quando o usuário clica em "Adicionar como confrontante" no popup de um imóvel identificado pelo clique. */
-  onNeighborPick?: (info: { car: string; area: number; municipio: string; uf: string }) => void;
+  onNeighborPick?: (info: { car: string; area: number; municipio: string; uf: string; matricula?: string }) => void;
   /** Disparado quando os confrontantes diretos (TOUCHES) são detectados automaticamente após o carregamento do CAR principal. */
-  onNeighborsDetected?: (neighbors: Array<{ car: string; area: number; municipio: string; uf: string }>) => void;
+  onNeighborsDetected?: (neighbors: Array<{ car: string; area: number; municipio: string; uf: string; matricula?: string }>) => void;
   /** Conjunto de CARs marcados no painel de seleção — usado pra destacar polígonos selecionados no mapa. */
   selectedNeighbors?: Set<string>;
   /** Alterna a marcação de um CAR no painel ao clicar no botão "Marcar/Desmarcar do painel" do popup. */
@@ -982,11 +982,16 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
         if (showNeighborBtn) {
           document.getElementById(neighborId)?.addEventListener('click', () => {
             loadingPopup.close();
+            // Extrai matrícula do bloco SIGEF se disponível no popup atual
+            const sigefMatricula = (sigefHtml ?? '').match(
+              /Matrícula:<\/span>\s*([^<]+)/
+            )?.[1]?.trim() || undefined;
             onNeighborPick?.({
               car: feat.cod_imovel,
               area: feat.area,
               municipio: feat.municipio,
               uf: feat.uf,
+              matricula: sigefMatricula,
             });
           });
         }
