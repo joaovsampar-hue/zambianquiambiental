@@ -321,17 +321,29 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
           },
           onEachFeature: (feat, layer) => {
             const p = feat.properties as any;
-            const nome = p?.denominacao || p?.nome_imovel || p?.DENOMINACAO || '—';
-            const area = p?.area_ha || p?.AREA_HA || p?.area || '—';
-            const cert = p?.cod_certificacao || p?.NUMERO_CERTIFICACAO || '—';
-            (layer as L.Path).bindTooltip(
-              `<div class="text-[11px] space-y-0.5">
-                <div class="font-bold text-purple-900">${nome}</div>
-                <div>Área: ${area} ha</div>
-                <div>Cert.: ${cert}</div>
-              </div>`,
-              { sticky: true, direction: 'top' }
-            );
+            if (!p) return;
+            const nome = p.nome_imove || p.nome_imovel || '—';
+            const area = p.qtd_area_p ? Number(p.qtd_area_p).toFixed(4) + ' ha' : '—';
+            const certif = p.num_certif || '—';
+            const dataCert = p.data_certi || '—';
+            const codImovel = p.cod_imovel || '—';
+            const uf = p.uf_municip || '—';
+            const processo = p.num_proces || '—';
+            const profissional = p.cod_profis || '—';
+            const html = `
+              <div class="text-xs space-y-1.5" style="min-width:240px">
+                <div class="font-semibold" style="color:#6B21A8">📋 SNCI/INCRA — 1ª Norma</div>
+                <div><span class="text-muted-foreground">Imóvel:</span> ${nome}</div>
+                <div><span class="text-muted-foreground">Área:</span> ${area}</div>
+                <div><span class="text-muted-foreground">Certificação:</span> ${certif}</div>
+                <div><span class="text-muted-foreground">Data:</span> ${dataCert}</div>
+                <div><span class="text-muted-foreground">Cód. imóvel:</span> ${codImovel}</div>
+                <div><span class="text-muted-foreground">UF/Município:</span> ${uf}</div>
+                <div><span class="text-muted-foreground">Processo:</span> ${processo}</div>
+                <div><span class="text-muted-foreground">Profissional:</span> ${profissional}</div>
+              </div>`;
+            (layer as L.Path).bindPopup(html, { maxWidth: 320 });
+            layer.on('click', (e: any) => { L.DomEvent.stopPropagation(e); });
           },
         }).addTo(snciGroup);
       }
