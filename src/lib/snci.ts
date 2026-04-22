@@ -1,10 +1,8 @@
 // SNCI (Sistema Nacional de Certificação de Imóveis) — 1ª Norma de Georreferenciamento do INCRA.
-// Via edge function `snci-incra-proxy`.
+// Via Cloudflare Worker (proxy CORS + TLS para o Acervo Fundiário do INCRA).
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
-
-/** URL base do nosso proxy WMS para SNCI. */
-export const SNCI_PROXY_WMS = `${SUPABASE_URL}/functions/v1/snci-incra-proxy`;
+/** URL base do nosso proxy WMS para SNCI no Cloudflare. */
+export const SNCI_PROXY_WMS = 'https://geodoc-snci-proxy.joaov-sampar.workers.dev';
 
 /**
  * Layer name padrão (privado — cobre 95% dos casos de uso).
