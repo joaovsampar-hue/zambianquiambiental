@@ -23,7 +23,7 @@ import {
   type SicarUF,
 } from '@/lib/sicar';
 import { SIGEF_PROXY_WMS, SIGEF_UFS, SIGEF_INFO_FORMAT, sigefLayerForUF, parseSigefInfoHtml, type SigefUF } from '@/lib/sigefIncra';
-import { SNCI_PROXY_WMS, snciLayerForUF } from '@/lib/snci';
+import { loadSnciGeoJSON } from '@/lib/snci';
 
 // Fix default Leaflet marker icons in bundler
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -278,15 +278,73 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     sigefInfoLayer.current = L.layerGroup().addTo(map);
 
     // Toggle do grupo SIGEF: ativa/desativa GetFeatureInfo para a UF carregada.
-    map.on('overlayadd', (e: L.LayersControlEvent) => {
+    map.on('overlayadd', async (e: L.LayersControlEvent) => {
       if (e.name === 'SIGEF/INCRA' && currentUfRef.current) {
         sigefActiveUFs.current.add(currentUfRef.current as SigefUF);
       }
+
+      // SNCI — carrega GeoJSON estático sob demanda ao ativar a camada
+      if (e.name === 'SNCI/INCRA (1ª Norma)' && currentUfRef.current) {
+        const snciGroup = snciGroupRef.current;
+        if (!snciGroup) return;
+
+        // Indicador visual de carregamento
+        const loadingLayer = L.marker(map.getCenter(), {
+          icon: L.divIcon({
+            className: '',
+            html: '<div class="bg-background/80 backdrop-blur-sm border border-border px-3 py-1.5 rounded-full shadow-lg flex items-center gap-2 text-xs font-medium"><div class="w-3 h-3 border-2 border-primary border-t-transparent animate-spin rounded-full"></div>Carregando SNCI…</div>',
+            iconAnchor: [60, 12],
+          }),
+        }).addTo(snciGroup);
+
+        const uf = currentUfRef.current;
+        const fc = await loadSnciGeoJSON(uf);
+        snciGroup.removeLayer(loadingLayer);
+
+        if (!fc) {
+          toast({
+            title: 'SNCI não disponível',
+            description: `Arquivo SNCI para ${uf.toUpperCase()} não encontrado. Faça o upload do GeoJSON no Supabase Storage (bucket: snci-data).`,
+            variant: 'destructive',
+          });
+          return;
+        }
+
+        // Renderiza os polígonos SNCI em roxo escuro para diferenciação visual
+        L.geoJSON(fc, {
+          style: {
+            color: '#6B21A8',
+            weight: 1.5,
+            fillColor: '#A855F7',
+            fillOpacity: 0.15,
+            opacity: 0.8,
+          },
+          onEachFeature: (feat, layer) => {
+            const p = feat.properties as any;
+            const nome = p?.denominacao || p?.nome_imovel || p?.DENOMINACAO || '—';
+            const area = p?.area_ha || p?.AREA_HA || p?.area || '—';
+            const cert = p?.cod_certificacao || p?.NUMERO_CERTIFICACAO || '—';
+            (layer as L.Path).bindTooltip(
+              `<div class="text-[11px] space-y-0.5">
+                <div class="font-bold text-purple-900">${nome}</div>
+                <div>Área: ${area} ha</div>
+                <div>Cert.: ${cert}</div>
+              </div>`,
+              { sticky: true, direction: 'top' }
+            );
+          },
+        }).addTo(snciGroup);
+      }
     });
+
     map.on('overlayremove', (e: L.LayersControlEvent) => {
       if (e.name === 'SIGEF/INCRA') {
         sigefActiveUFs.current.clear();
         sigefInfoLayer.current?.clearLayers();
+      }
+      // SNCI — limpa layers ao desativar (mantém cache em memória)
+      if (e.name === 'SNCI/INCRA (1ª Norma)') {
+        snciGroupRef.current?.clearLayers();
       }
     });
 
@@ -379,30 +437,6 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
         sigefActiveUFs.current.clear();
         sigefActiveUFs.current.add(uf as SigefUF);
       }
-    }
-
-    // SNCI — idem.
-    if ((SIGEF_UFS as readonly string[]).includes(uf)) {
-      const wmsSnci = L.tileLayer.wms(SNCI_PROXY_WMS, {
-        layers: snciLayerForUF(uf),
-        format: 'image/png',
-        transparent: true,
-        version: '1.1.1',
-        uppercase: true,
-        attribution: 'SNCI/INCRA (1ª Norma)',
-        opacity: 0.70,
-      } as L.WMSOptions);
-      wmsSnci.on('tileerror', () => {
-        const w = wmsSnci as L.TileLayer & { __notified?: boolean };
-        if (w.__notified) return;
-        w.__notified = true;
-        toast({
-          title: 'SNCI/INCRA indisponível',
-          description: 'O Acervo Fundiário do INCRA está fora do ar. Tente em alguns minutos.',
-          variant: 'destructive',
-        });
-      });
-      snciGroupRef.current?.addLayer(wmsSnci);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [carNumber]);
