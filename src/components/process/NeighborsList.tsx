@@ -659,8 +659,11 @@ export default function NeighborsList({ processId, clientName, processNumber, ca
                   <td className="p-2 text-xs">{n.registration_number || '—'}</td>
                   <td className="p-2 text-xs">{n.ccir_number || '—'}</td>
                   <td className="p-2 text-xs">{n.phones?.[0]?.number || '—'}</td>
-                  <td className="p-2 text-xs font-mono truncate max-w-[180px]" title={n.car_number || ''}>
-                    {n.car_number || '—'}
+                  <td className="p-2 text-xs font-mono truncate max-w-[180px]"
+                    title={n.car_number?.startsWith('SNCI:') ? 'Certificado SNCI' : (n.car_number || '')}>
+                    {n.car_number?.startsWith('SNCI:')
+                      ? <span className="text-purple-600 font-sans font-medium not-italic">SNCI</span>
+                      : (n.car_number || '—')}
                   </td>
                   <td className="p-2 text-right">
                     <Button variant="ghost" size="sm" onClick={() => openEdit(n)}>

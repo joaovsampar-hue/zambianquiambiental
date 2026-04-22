@@ -48,12 +48,16 @@ export function exportNeighborsToExcel(opts: {
   ]);
 
   for (const n of neighbors) {
+    const carDisplay = n.car_number?.startsWith('SNCI:')
+      ? ''   // SNCI não tem CAR — deixa vazio
+      : (n.car_number ?? '');
+
     aoa.push([
       (n.positions ?? []).join(', ') || '—',
       n.full_name ?? '',
       n.registration_number ?? '',
       formatPhones(n.phones),
-      n.car_number ?? '',
+      carDisplay,
       n.registry_office ?? '',
     ]);
   }

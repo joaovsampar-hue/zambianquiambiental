@@ -135,24 +135,15 @@ export default function ProcessDetailPage() {
     enabled: !!id,
     queryFn: async () => {
       const { data } = await supabase.from('process_neighbors')
-        .select('car_number, registration_number').eq('process_id', id!);
-      return (data ?? []).flatMap(r => {
-        const results: string[] = [];
-        if (r.car_number) results.push(r.car_number);
-        // Reconstrói o identificador SNCI a partir do registration_number
-        // para que o mapa reconheça como cadastrado
-        if (r.registration_number && !r.car_number) {
-          results.push(`SNCI:${r.registration_number}`);
-        }
-        return results;
-      }).filter(Boolean) as string[];
+        .select('car_number').eq('process_id', id!);
+      return (data ?? []).map(r => r.car_number).filter(Boolean) as string[];
     },
   });
 
   const registeredSet = useMemo(
     () => new Set(
       registeredCars.map(c =>
-        c && c.startsWith('SNCI:') ? c : sanitizeCar(c)
+        c?.startsWith('SNCI:') ? c : sanitizeCar(c)
       )
     ),
     [registeredCars],
@@ -178,14 +169,14 @@ export default function ProcessDetailPage() {
         return {
           process_id: id!,
           created_by: user!.id,
-          // SNCI não tem CAR — salva null para não poluir o campo
-          car_number: isSnci ? null : n.car,
+          // SNCI: mantém o identificador prefixado para que o mapa reconheça como cadastrado.
+          // O prefixo SNCI: é filtrado na exportação Excel e na exibição da tabela.
+          car_number: n.car,
           property_denomination: isSnci
             ? `Imóvel SNCI — ${n.municipio}/${n.uf} (${n.area.toFixed(2)} ha)`
             : `Imóvel rural — ${n.municipio}/${n.uf} (${n.area.toFixed(2)} ha)`,
           phones: [] as any,
           positions: [],
-          // SNCI: número de certificação vai para registration_number
           registration_number: n.matricula || null,
         };
       });

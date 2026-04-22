@@ -360,8 +360,9 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
 
             (layer as L.Path).bindPopup(html, { maxWidth: 320 });
 
-            layer.on('click', (e: any) => {
-              L.DomEvent.stopPropagation(e);
+            layer.on('click', (_e: any) => {
+              // Não bloqueia propagação — permite que identifyAtPoint
+              // rode em paralelo e mostre dados do SICAR/SIGEF no mesmo ponto.
             });
 
             layer.on('popupopen', () => {
