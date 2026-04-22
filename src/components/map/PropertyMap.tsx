@@ -23,6 +23,7 @@ import {
   type SicarUF,
 } from '@/lib/sicar';
 import { SIGEF_PROXY_WMS, SIGEF_UFS, SIGEF_INFO_FORMAT, sigefLayerForUF, parseSigefInfoHtml, type SigefUF } from '@/lib/sigefIncra';
+import { SNCI_PROXY_WMS, snciLayerForUF } from '@/lib/snci';
 
 // Fix default Leaflet marker icons in bundler
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -105,6 +106,7 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
   const sigefActiveUFs = useRef<Set<SigefUF>>(new Set());
   const sicarGroupRef = useRef<L.LayerGroup | null>(null);
   const sigefGroupRef = useRef<L.LayerGroup | null>(null);
+  const snciGroupRef = useRef<L.LayerGroup | null>(null);
   // UF atualmente carregada nos overlays (evita reinstanciar quando não muda).
   const currentUfRef = useRef<string | null>(null);
   const sigefInfoLayer = useRef<L.LayerGroup | null>(null);
@@ -170,12 +172,13 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     setOverlayTilesVisible: (visible: boolean) => {
       const sicar = sicarGroupRef.current;
       const sigef = sigefGroupRef.current;
+      const snci = snciGroupRef.current;
       const main = layerGroup.current;
       const neighbors = neighborsLayer.current;
       const map = mapInstance.current;
       if (!map) return;
       // Esconde TUDO que não é basemap durante a captura para o PDF.
-      [sicar, sigef, main, neighbors].forEach(group => {
+      [sicar, sigef, snci, main, neighbors].forEach(group => {
         if (!group) return;
         group.eachLayer(l => {
           const el = (l as any).getContainer?.() as HTMLElement | undefined;
@@ -248,10 +251,12 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     // DESLIGADOS — o usuário ativa quando precisar.
     const sicarGroup = L.layerGroup();
     const sigefGroup = L.layerGroup();
+    const snciGroup = L.layerGroup();
     const neighborsGroup = L.layerGroup();
     sigefWmsByUFRef.current = new Map();
     sicarGroupRef.current = sicarGroup;
     sigefGroupRef.current = sigefGroup;
+    snciGroupRef.current = snciGroup;
 
     layerGroup.current = L.layerGroup().addTo(map); // imóvel principal — sempre visível
     neighborsLayer.current = neighborsGroup;
@@ -261,6 +266,7 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     const overlays: Record<string, L.Layer> = {
       'SICAR': sicarGroup,
       'SIGEF/INCRA': sigefGroup,
+      'SNCI/INCRA (1ª Norma)': snciGroup,
       'Confrontantes cadastrados': neighborsGroup,
     };
 
@@ -316,6 +322,7 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     // Limpa camadas anteriores e mapeamentos.
     sicarGroup.clearLayers();
     sigefGroup.clearLayers();
+    snciGroupRef.current?.clearLayers();
     sigefWmsByUFRef.current?.clear();
 
     // SICAR — uma WMS para a UF do imóvel.
@@ -372,6 +379,30 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
         sigefActiveUFs.current.clear();
         sigefActiveUFs.current.add(uf as SigefUF);
       }
+    }
+
+    // SNCI — idem.
+    if ((SIGEF_UFS as readonly string[]).includes(uf)) {
+      const wmsSnci = L.tileLayer.wms(SNCI_PROXY_WMS, {
+        layers: snciLayerForUF(uf),
+        format: 'image/png',
+        transparent: true,
+        version: '1.1.1',
+        uppercase: true,
+        attribution: 'SNCI/INCRA (1ª Norma)',
+        opacity: 0.70,
+      } as L.WMSOptions);
+      wmsSnci.on('tileerror', () => {
+        const w = wmsSnci as L.TileLayer & { __notified?: boolean };
+        if (w.__notified) return;
+        w.__notified = true;
+        toast({
+          title: 'SNCI/INCRA indisponível',
+          description: 'O Acervo Fundiário do INCRA está fora do ar. Tente em alguns minutos.',
+          variant: 'destructive',
+        });
+      });
+      snciGroupRef.current?.addLayer(wmsSnci);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [carNumber]);
