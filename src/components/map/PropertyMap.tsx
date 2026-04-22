@@ -330,6 +330,15 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
             const uf = p.uf_municip || '—';
             const processo = p.num_proces || '—';
             const profissional = p.cod_profis || '—';
+            const areaNum = p.qtd_area_p ? Number(p.qtd_area_p) : 0;
+
+            // Extrai UF e município do campo uf_municip (formato: "SP" ou "SP/Valparaíso")
+            const ufCode = uf.split('/')[0]?.trim() || '';
+            const municipio = uf.split('/')[1]?.trim() || uf;
+
+            const btnId = `snci-neighbor-${String(codImovel).replace(/[^A-Za-z0-9]/g, '')}`;
+            const showBtn = !!onNeighborPick;
+
             const html = `
               <div class="text-xs space-y-1.5" style="min-width:240px">
                 <div class="font-semibold" style="color:#6B21A8">📋 SNCI/INCRA — 1ª Norma</div>
@@ -341,9 +350,33 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
                 <div><span class="text-muted-foreground">UF/Município:</span> ${uf}</div>
                 <div><span class="text-muted-foreground">Processo:</span> ${processo}</div>
                 <div><span class="text-muted-foreground">Profissional:</span> ${profissional}</div>
+                ${showBtn ? `
+                <div class="pt-1">
+                  <button id="${btnId}" class="px-2 py-1 rounded bg-secondary text-secondary-foreground text-xs border border-border">
+                    + Listar como confrontante
+                  </button>
+                </div>` : ''}
               </div>`;
+
             (layer as L.Path).bindPopup(html, { maxWidth: 320 });
-            layer.on('click', (e: any) => { L.DomEvent.stopPropagation(e); });
+
+            layer.on('click', (e: any) => {
+              L.DomEvent.stopPropagation(e);
+            });
+
+            layer.on('popupopen', () => {
+              if (!showBtn) return;
+              document.getElementById(btnId)?.addEventListener('click', () => {
+                (layer as any).closePopup?.();
+                onNeighborPick?.({
+                  car: String(codImovel),   // usa cod_imovel como identificador
+                  area: areaNum,
+                  municipio: municipio,
+                  uf: ufCode,
+                  matricula: certif !== '—' ? certif : undefined,
+                });
+              });
+            });
           },
         }).addTo(snciGroup);
       }
