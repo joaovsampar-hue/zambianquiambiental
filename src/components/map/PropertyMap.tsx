@@ -368,8 +368,31 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
               if (!showBtn) return;
               document.getElementById(btnId)?.addEventListener('click', () => {
                 (layer as any).closePopup?.();
+
+                // Identificador único com prefixo SNCI: para não conflitar com CARs.
+                // Usamos o número da certificação como base do ID para permitir a reconstrução no ProcessDetailPage.
+                const snciId = `SNCI:${certif !== '—' ? certif : String(codImovel)}`;
+
+                // Armazena a geometry diretamente no cache para não precisar buscar no SICAR
+                if (!fetchedFeaturesRef.current.has(snciId)) {
+                  const geometry = (feat as GeoJSON.Feature).geometry as GeoJSON.Polygon | GeoJSON.MultiPolygon;
+                  fetchedFeaturesRef.current.set(snciId, {
+                    type: 'Feature',
+                    geometry,
+                    properties: {
+                      cod_imovel: snciId,
+                      area: areaNum,
+                      municipio: municipio,
+                      uf: ufCode,
+                      snci: true,
+                      num_certif: certif,
+                      nome_imove: nome,
+                    },
+                  });
+                }
+
                 onNeighborPick?.({
-                  car: String(codImovel),   // usa cod_imovel como identificador
+                  car: snciId,           // prefixado com SNCI: — identifica a origem
                   area: areaNum,
                   municipio: municipio,
                   uf: ufCode,
