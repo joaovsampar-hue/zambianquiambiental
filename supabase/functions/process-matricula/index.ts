@@ -444,11 +444,20 @@ serve(async (req: Request) => {
         }),
       });
       if (retryResp.ok) {
-        const retryJson = await retryResp.json();
-        const retryContent = retryJson.choices?.[0]?.message?.content ?? "";
-        const retryParsed = tryParse(retryContent);
-        if (retryParsed && typeof retryParsed === "object") {
-          parsed = retryParsed;
+        const retryRaw = await retryResp.text();
+        if (retryRaw && retryRaw.trim()) {
+          try {
+            const retryJson = JSON.parse(retryRaw);
+            const retryContent = retryJson.choices?.[0]?.message?.content ?? "";
+            const retryParsed = tryParse(retryContent);
+            if (retryParsed && typeof retryParsed === "object") {
+              parsed = retryParsed;
+            }
+          } catch (e) {
+            console.error("Retry parse failed:", retryRaw.slice(0, 300));
+          }
+        } else {
+          console.error("Retry returned empty body");
         }
       }
     }
