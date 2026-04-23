@@ -406,18 +406,17 @@ serve(async (req: Request) => {
     }
 
     const rawText = await response.text();
-    if (!rawText || !rawText.trim()) {
-      console.error("AI Gateway returned empty body (status", response.status, ")");
-      throw new Error("AI Gateway retornou resposta vazia. Tente novamente — o documento pode ser muito grande.");
+    let aiResponse: any = null;
+    if (rawText && rawText.trim()) {
+      try {
+        aiResponse = JSON.parse(rawText);
+      } catch (parseErr) {
+        console.error("Failed to parse AI Gateway response:", rawText.slice(0, 500));
+      }
+    } else {
+      console.error("AI Gateway returned empty body (status", response.status, ") — will fallback to gemini-2.5-pro");
     }
-    let aiResponse: any;
-    try {
-      aiResponse = JSON.parse(rawText);
-    } catch (parseErr) {
-      console.error("Failed to parse AI Gateway response:", rawText.slice(0, 500));
-      throw new Error("Resposta inválida do AI Gateway (JSON malformado).");
-    }
-    const content = aiResponse.choices?.[0]?.message?.content ?? "";
+    const content = aiResponse?.choices?.[0]?.message?.content ?? "";
 
     const tryParse = (raw: string) => {
       try {
