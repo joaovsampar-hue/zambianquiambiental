@@ -11,6 +11,30 @@ import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
 import { Upload, FileText, Loader2 } from 'lucide-react';
 import { deduplicateConjuges } from './AnalysisPage';
+import * as pdfjsLib from 'pdfjs-dist';
+// Use a CDN worker matching the installed pdfjs-dist version (avoids bundling issues).
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+
+async function rasterizePdfToJpegs(file: File, scale = 1.5, quality = 0.85): Promise<Blob[]> {
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  const blobs: Blob[] = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const viewport = page.getViewport({ scale });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.ceil(viewport.width);
+    canvas.height = Math.ceil(viewport.height);
+    const ctx = canvas.getContext('2d')!;
+    await page.render({ canvasContext: ctx, viewport, canvas } as any).promise;
+    const blob: Blob = await new Promise((resolve, reject) =>
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/jpeg', quality),
+    );
+    blobs.push(blob);
+    page.cleanup();
+  }
+  return blobs;
+}
 
 export default function NewAnalysisPage() {
   const { user } = useAuth();
@@ -57,13 +81,31 @@ export default function NewAnalysisPage() {
     mutationFn: async () => {
       if (!file || !propertyId) throw new Error('Selecione um imóvel e um arquivo');
 
-      // Step 1: Upload PDF
+      // Step 1: Upload original PDF (kept for audit/reference)
       setStep('Enviando PDF...');
-      setProgress(10);
-      const filePath = `${user!.id}/${Date.now()}_${file.name}`;
+      setProgress(5);
+      const ts = Date.now();
+      const filePath = `${user!.id}/${ts}_${file.name}`;
       const { error: uploadError } = await supabase.storage.from('matriculas').upload(filePath, file);
       if (uploadError) throw uploadError;
-      setProgress(30);
+      setProgress(15);
+
+      // Step 1b: Rasterize PDF to JPEGs in the browser, then upload each page.
+      // Gemini accepts JPEG via signed URL natively (PDFs would require base64
+      // which exceeds the edge function's memory for large files).
+      setStep('Convertendo páginas em imagens...');
+      const pageBlobs = await rasterizePdfToJpegs(file);
+      const pagesPrefix = `${user!.id}/${ts}_pages`;
+      const imagePaths: string[] = [];
+      for (let i = 0; i < pageBlobs.length; i++) {
+        const path = `${pagesPrefix}/page-${String(i + 1).padStart(3, '0')}.jpg`;
+        const { error: pErr } = await supabase.storage
+          .from('matriculas')
+          .upload(path, pageBlobs[i], { contentType: 'image/jpeg' });
+        if (pErr) throw pErr;
+        imagePaths.push(path);
+        setProgress(15 + Math.round(((i + 1) / pageBlobs.length) * 25));
+      }
 
       // Step 2: Get existing version count
       const { count } = await supabase
@@ -94,7 +136,7 @@ export default function NewAnalysisPage() {
       setProgress(50);
 
       const { data: funcData, error: funcError } = await supabase.functions.invoke('process-matricula', {
-        body: { analysisId: analysis.id, pdfPath: filePath },
+        body: { analysisId: analysis.id, pdfPath: filePath, imagePaths },
       });
 
       if (funcError) throw funcError;

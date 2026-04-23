@@ -193,7 +193,7 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { analysisId, pdfPath } = await req.json();
+    const { analysisId, pdfPath, imagePaths } = await req.json();
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -203,16 +203,29 @@ serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Generate a short-lived signed URL so the AI Gateway can fetch the PDF
-    // directly (avoids loading the entire file into edge worker memory).
-    const { data: signed, error: signErr } = await supabase.storage
-      .from("matriculas")
-      .createSignedUrl(pdfPath, 60 * 10); // 10 minutes
-    if (signErr || !signed?.signedUrl) {
-      throw signErr ?? new Error("Failed to create signed URL");
+    // The client rasterizes the PDF to JPEGs and uploads them to storage.
+    // Gemini accepts JPEG/PNG via signed URL natively (no base64 needed),
+    // so we never load the PDF into edge memory.
+    if (!Array.isArray(imagePaths) || imagePaths.length === 0) {
+      return new Response(
+        JSON.stringify({ error: "imagePaths é obrigatório (array de caminhos de imagens das páginas)." }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
-    const pdfUrl = signed.signedUrl;
-    console.log(`process-matricula: using signed URL for PDF`);
+    const signedUrls: string[] = [];
+    for (const path of imagePaths) {
+      const { data: s, error: sErr } = await supabase.storage
+        .from("matriculas")
+        .createSignedUrl(path, 60 * 15);
+      if (sErr || !s?.signedUrl) throw sErr ?? new Error(`Failed to sign ${path}`);
+      signedUrls.push(s.signedUrl);
+    }
+    console.log(`process-matricula: ${signedUrls.length} page image(s) signed`);
+
+    const buildContent = (text: string) => [
+      { type: "text", text },
+      ...signedUrls.map((url) => ({ type: "image_url", image_url: { url } })),
+    ];
 
     // Send to Lovable AI Gateway with vision
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -227,16 +240,9 @@ serve(async (req) => {
           { role: "system", content: SYSTEM_PROMPT },
           {
             role: "user",
-            content: [
-              {
-                type: "text",
-                text: "Analise esta matrícula de imóvel rural e extraia todos os dados no formato JSON especificado. Identifique todos os alertas relevantes.",
-              },
-              {
-                type: "image_url",
-                image_url: { url: pdfUrl },
-              },
-            ],
+            content: buildContent(
+              "Analise esta matrícula de imóvel rural (páginas em ordem) e extraia todos os dados no formato JSON especificado. Identifique todos os alertas relevantes.",
+            ),
           },
         ],
       }),
@@ -289,16 +295,9 @@ serve(async (req) => {
             { role: "system", content: SYSTEM_PROMPT },
             {
               role: "user",
-              content: [
-                {
-                  type: "text",
-                  text: "A análise anterior retornou campos vazios. Tente novamente com atenção máxima ao texto. O documento pode ter marca d'água intensa, ser datilografado ou ter baixa qualidade. Extraia qualquer dado legível. Para campos ilegíveis use '[ilegível]' em vez de string vazia.",
-                },
-                {
-                  type: "image_url",
-                  image_url: { url: pdfUrl },
-                },
-              ],
+              content: buildContent(
+                "A análise anterior retornou campos vazios. Tente novamente com atenção máxima ao texto. O documento pode ter marca d'água intensa, ser datilografado ou ter baixa qualidade. Extraia qualquer dado legível. Para campos ilegíveis use '[ilegível]' em vez de string vazia.",
+              ),
             },
           ],
         }),
