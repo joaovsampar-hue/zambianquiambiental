@@ -361,39 +361,84 @@ export async function exportToWord(data: AnalysisData) {
   // F2 — Confrontantes cadastrados (process_neighbors)
   children.push(sectionHeading('5. Confrontantes'));
   if (neighbors.length === 0) {
-    children.push(new Paragraph({ children: [new TextRun({ text: 'Nenhum confrontante cadastrado', italics: true, size: 20, font: 'Arial', color: '888888' })] }));
-  } else {
-    const headerRow = new TableRow({
-      children: ['Denominação', 'Proprietário atual', 'Matrícula', 'CCIR', 'Município/UF'].map(h =>
-        new TableCell({
-          borders: cellBorders,
-          shading: { fill: 'E8F5E9', type: ShadingType.CLEAR },
-          margins: { top: 60, bottom: 60, left: 80, right: 80 },
-          children: [new Paragraph({ children: [new TextRun({ text: h, bold: true, size: 18, font: 'Arial' })] })],
-        })
-      ),
-    });
-    const rows = neighbors.map(n => {
-      const ownerName = (n.owners ?? []).map((o: any) => o.name).filter(Boolean).join(' / ') || '—';
-      const munuf = [n.municipality, n.state].filter(Boolean).join('/') || '—';
-      return new TableRow({
-        children: [
-          n.denomination || '—',
-          ownerName,
-          n.registration_number || '—',
-          n.ccir || '—',
-          munuf,
-        ].map(txt => new TableCell({
-          borders: cellBorders,
-          margins: { top: 50, bottom: 50, left: 80, right: 80 },
-          children: [new Paragraph({ children: [new TextRun({ text: String(txt), size: 18, font: 'Arial' })] })],
-        })),
-      });
-    });
-    children.push(new Table({
-      width: { size: 9360, type: WidthType.DXA },
-      rows: [headerRow, ...rows],
+    children.push(new Paragraph({
+      children: [new TextRun({ text: 'Nenhum confrontante cadastrado', italics: true, size: 20, font: 'Arial', color: '888888' })],
     }));
+  } else {
+    neighbors.forEach((n: NeighborRow, idx: number) => {
+      // Cabeçalho do confrontante
+      children.push(new Paragraph({
+        spacing: { before: 200, after: 80 },
+        children: [new TextRun({ text: `Confrontante ${idx + 1}`, bold: true, size: 22, font: 'Arial', color: '1B5E20' })],
+      }));
+
+      // Identificação do imóvel confrontante
+      const munuf = [n.municipality, n.state].filter(Boolean).join('/') || '—';
+      children.push(new Table({
+        width: { size: 9360, type: WidthType.DXA },
+        columnWidths: [3500, 5860],
+        rows: labelValueRows([
+          ['Denominação', n.denomination],
+          ['Nº Matrícula', n.registration_number],
+          ['CCIR', n.ccir],
+          ['Município/UF', munuf],
+        ]),
+      }));
+
+      // Proprietários do confrontante
+      const ownersList = n.owners ?? [];
+      if (ownersList.length > 0) {
+        children.push(new Paragraph({
+          spacing: { before: 120, after: 60 },
+          children: [new TextRun({ text: 'Proprietários', bold: true, size: 20, font: 'Arial', color: '2E7D32' })],
+        }));
+        ownersList.forEach((o: any, oi: number) => {
+          children.push(new Paragraph({
+            spacing: { before: 80 },
+            children: [new TextRun({ text: `Proprietário ${oi + 1}`, bold: true, size: 20, font: 'Arial' })],
+          }));
+          const regime = (o.marriage_regime ?? '').toString().trim();
+          const vig = o.vigencia_lei_divorcio;
+          const regimeFull = (() => {
+            const label =
+              vig === 'antes_da_vigencia_6515' || vig === 'antes_da_vigencia' ? 'anterior à Lei 6.515/77' :
+              vig === 'vigencia_6515' || vig === 'apos_vigencia' ? 'Lei 6.515/77' :
+              vig === 'vigencia_cc2002' ? 'CC/2002 (Lei 10.406)' : '';
+            return label && regime ? `${regime} (${label})` : (regime || '—');
+          })();
+          children.push(new Table({
+            width: { size: 9360, type: WidthType.DXA },
+            columnWidths: [3500, 5860],
+            rows: labelValueRows([
+              ['Nome', o.name],
+              ['CPF/CNPJ', o.cpf_cnpj],
+              ['RG', o.rg],
+              ['Estado Civil', o.marital_status],
+              ['Regime de Casamento', regimeFull],
+              ['Participação (%)', o.share_percentage],
+            ]),
+          }));
+          if (o.spouse?.name || o.spouse?.cpf) {
+            const spouseLabel = o.spouse?.share_percentage ? 'Cônjuge (co-proprietário)' : 'Cônjuge';
+            children.push(new Paragraph({
+              spacing: { before: 80 },
+              children: [new TextRun({ text: spouseLabel, bold: true, size: 20, font: 'Arial', color: '555555' })],
+            }));
+            const spouseRows: [string, string][] = [
+              ['Nome', o.spouse.name ?? ''],
+              ['CPF', o.spouse.cpf ?? ''],
+              ['RG', o.spouse.rg ?? ''],
+            ];
+            if (o.spouse.share_percentage) spouseRows.push(['Participação (%)', String(o.spouse.share_percentage)]);
+            children.push(new Table({
+              width: { size: 9360, type: WidthType.DXA },
+              columnWidths: [3500, 5860],
+              rows: labelValueRows(spouseRows),
+            }));
+          }
+        });
+      }
+    });
   }
 
   // Alerts
@@ -642,26 +687,103 @@ export function exportToPdf(data: AnalysisData) {
     doc.setTextColor(0, 0, 0);
     y += 6;
   } else {
-    autoTable(doc, {
-      startY: y,
-      head: [['Denominação', 'Proprietário atual', 'Matrícula', 'CCIR', 'Município/UF']],
-      body: neighbors.map(n => {
-        const ownerName = (n.owners ?? []).map((o: any) => o.name).filter(Boolean).join(' / ') || '—';
-        const munuf = [n.municipality, n.state].filter(Boolean).join('/') || '—';
-        return [
-          n.denomination || '—',
-          ownerName,
-          n.registration_number || '—',
-          n.ccir || '—',
-          munuf,
-        ];
-      }),
-      theme: 'grid',
-      styles: { fontSize: 8, cellPadding: 2, overflow: 'linebreak' },
-      headStyles: { fillColor: [232, 245, 233], textColor: [30, 94, 50], fontStyle: 'bold' },
-      margin: { left: 14, right: 14 },
+    neighbors.forEach((n: NeighborRow, idx: number) => {
+      if (y > 250) { doc.addPage(); y = 20; }
+
+      // Cabeçalho do confrontante
+      doc.setFontSize(11);
+      doc.setTextColor(...green);
+      doc.text(`Confrontante ${idx + 1}`, 14, y);
+      y += 6;
+      doc.setTextColor(0, 0, 0);
+
+      // Identificação do imóvel
+      const munuf = [n.municipality, n.state].filter(Boolean).join('/') || '—';
+      autoTable(doc, {
+        startY: y,
+        head: [],
+        body: [
+          ['Denominação', n.denomination || '—'],
+          ['Nº Matrícula', n.registration_number || '—'],
+          ['CCIR', n.ccir || '—'],
+          ['Município/UF', munuf],
+        ],
+        theme: 'grid',
+        styles: { fontSize: 9 },
+        columnStyles: { 0: { fontStyle: 'bold', cellWidth: 45, fillColor: [232, 245, 233] } },
+        margin: { left: 14, right: 14 },
+      });
+      y = (doc as any).lastAutoTable.finalY + 4;
+
+      // Proprietários
+      const ownersList = n.owners ?? [];
+      if (ownersList.length > 0) {
+        ownersList.forEach((o: any, oi: number) => {
+          if (y > 250) { doc.addPage(); y = 20; }
+          doc.setFontSize(10);
+          doc.setTextColor(60, 60, 60);
+          doc.text(`Proprietário ${oi + 1}`, 14, y);
+          y += 3;
+          doc.setTextColor(0, 0, 0);
+
+          const regime = (o.marriage_regime ?? '').toString().trim();
+          const vig = o.vigencia_lei_divorcio;
+          const regimeFull = (() => {
+            const label =
+              vig === 'antes_da_vigencia_6515' || vig === 'antes_da_vigencia' ? 'anterior à Lei 6.515/77' :
+              vig === 'vigencia_6515' || vig === 'apos_vigencia' ? 'Lei 6.515/77' :
+              vig === 'vigencia_cc2002' ? 'CC/2002 (Lei 10.406)' : '';
+            return label && regime ? `${regime} (${label})` : (regime || '—');
+          })();
+
+          autoTable(doc, {
+            startY: y,
+            head: [],
+            body: [
+              ['Nome', o.name || '—'],
+              ['CPF/CNPJ', o.cpf_cnpj || '—'],
+              ['RG', o.rg || '—'],
+              ['Estado Civil', o.marital_status || '—'],
+              ['Regime de Casamento', regimeFull],
+              ['Participação (%)', o.share_percentage || '—'],
+            ],
+            theme: 'grid',
+            styles: { fontSize: 9 },
+            columnStyles: { 0: { fontStyle: 'bold', cellWidth: 45, fillColor: [232, 245, 233] } },
+            margin: { left: 14, right: 14 },
+          });
+          y = (doc as any).lastAutoTable.finalY + 3;
+
+          if (o.spouse?.name || o.spouse?.cpf) {
+            if (y > 250) { doc.addPage(); y = 20; }
+            const spouseLabel = o.spouse?.share_percentage ? 'Cônjuge (co-proprietário)' : 'Cônjuge';
+            doc.setFontSize(9);
+            doc.setTextColor(80, 80, 80);
+            doc.text(spouseLabel, 14, y);
+            y += 3;
+            doc.setTextColor(0, 0, 0);
+            const spouseBody: string[][] = [
+              ['Nome', o.spouse.name || '—'],
+              ['CPF', o.spouse.cpf || '—'],
+              ['RG', o.spouse.rg || '—'],
+            ];
+            if (o.spouse.share_percentage) spouseBody.push(['Participação (%)', String(o.spouse.share_percentage)]);
+            autoTable(doc, {
+              startY: y,
+              head: [],
+              body: spouseBody,
+              theme: 'grid',
+              styles: { fontSize: 9 },
+              columnStyles: { 0: { fontStyle: 'bold', cellWidth: 45, fillColor: [240, 240, 240] } },
+              margin: { left: 14, right: 14 },
+            });
+            y = (doc as any).lastAutoTable.finalY + 3;
+          }
+        });
+      }
+
+      y += 4; // espaço entre confrontantes
     });
-    y = (doc as any).lastAutoTable.finalY + 4;
   }
 
   // Alerts
