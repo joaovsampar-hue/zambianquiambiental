@@ -214,6 +214,17 @@ EXEMPLO: matrícula onde R.22 atribuiu 3/6 a Aparecida Bottan da Silva e AV.25 r
 
 INSTRUÇÃO 11 — USUFRUTO, NU-PROPRIEDADE E PAPÉIS COMBINADOS:
 
+REGRA FUNDAMENTAL DA INSTRUÇÃO 11:
+O usufrutuário DEVE ser incluído no array owners com todos os seus dados completos (nome, CPF, RG, estado civil, regime de casamento, cônjuge). Não retorne o usufrutuário apenas como alerta — ele DEVE aparecer em owners. O campo role: 'usufrutuario' o distingue dos proprietários plenos. O alerta de [USUFRUTO ATIVO] é ADICIONAL ao campo owners, não substituto.
+
+Da mesma forma, o nu-proprietário que também tem fração plena DEVE ter:
+- role: 'nu_proprietario_e_proprietario_pleno'
+- share_nu_propriedade preenchido
+- share_propriedade_plena preenchido
+- share_percentage = soma das duas frações
+
+Estes campos são OBRIGATÓRIOS quando houver usufruto na matrícula.
+
 Quando encontrar doação com reserva de usufruto ou constituição de usufruto (palavras-chave: 'com reserva de usufruto', 'reservou para si o usufruto vitalício', 'USUFRUTUÁRIO:', 'NÚ-PROPRIETÁRIO:', 'usufruto vitalício sobre as partes ideais'):
 
 Para o DOADOR que reservou usufruto:
@@ -305,7 +316,7 @@ async function callAI(apiKey: string, messages: any[]): Promise<string> {
   return j.choices?.[0]?.message?.content ?? "";
 }
 
-serve(async (req) => {
+serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {

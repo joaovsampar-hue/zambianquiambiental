@@ -251,6 +251,17 @@ EXEMPLO: matrícula onde R.22 atribuiu 3/6 a Aparecida Bottan da Silva e AV.25 r
 
 INSTRUÇÃO 11 — USUFRUTO, NU-PROPRIEDADE E PAPÉIS COMBINADOS:
 
+REGRA FUNDAMENTAL DA INSTRUÇÃO 11:
+O usufrutuário DEVE ser incluído no array owners com todos os seus dados completos (nome, CPF, RG, estado civil, regime de casamento, cônjuge). Não retorne o usufrutuário apenas como alerta — ele DEVE aparecer em owners. O campo role: 'usufrutuario' o distingue dos proprietários plenos. O alerta de [USUFRUTO ATIVO] é ADICIONAL ao campo owners, não substituto.
+
+Da mesma forma, o nu-proprietário que também tem fração plena DEVE ter:
+- role: 'nu_proprietario_e_proprietario_pleno'
+- share_nu_propriedade preenchido
+- share_propriedade_plena preenchido
+- share_percentage = soma das duas frações
+
+Estes campos são OBRIGATÓRIOS quando houver usufruto na matrícula.
+
 Quando encontrar doação com reserva de usufruto ou constituição de usufruto (palavras-chave: 'com reserva de usufruto', 'reservou para si o usufruto vitalício', 'USUFRUTUÁRIO:', 'NÚ-PROPRIETÁRIO:', 'usufruto vitalício sobre as partes ideais'):
 
 Para o DOADOR que reservou usufruto:
@@ -273,7 +284,7 @@ EXEMPLO para matrícula 6.420:
 - NILTON VICENTE CORNACINI: recebeu 50% por herança (R.1 — propriedade plena) E 50% por doação de João (R.3 — nua-propriedade).
   role: 'nu_proprietario_e_proprietario_pleno', share_nu_propriedade: '50%', share_propriedade_plena: '50%', share_percentage: '100%'`;
 
-serve(async (req) => {
+serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
@@ -443,6 +454,35 @@ serve(async (req) => {
       encumbrances: parsed.encumbrances ?? {},
       transfers: parsed.transfers ?? [],
     };
+
+    // Pós-processamento: garantir que ato_cancelamento preenchido = status cancelada
+    const fixEncumbranceStatus = (items: any[], statusKey: string) => {
+      if (!Array.isArray(items)) return items;
+      return items.map(item => {
+        if (!item || typeof item !== 'object') return item;
+        const hasCancel = item.ato_cancelamento &&
+          item.ato_cancelamento !== null &&
+          item.ato_cancelamento !== '' &&
+          item.ato_cancelamento !== '—';
+        if (hasCancel && item[statusKey] !== 'cancelada') {
+          return { ...item, [statusKey]: 'cancelada' };
+        }
+        return item;
+      });
+    };
+
+    const enc = extracted_data.encumbrances;
+    if (enc) {
+      if (Array.isArray(enc.mortgage)) {
+        enc.mortgage = fixEncumbranceStatus(enc.mortgage, 'status_hipoteca');
+      }
+      if (Array.isArray(enc.fiduciary_alienation)) {
+        enc.fiduciary_alienation = fixEncumbranceStatus(enc.fiduciary_alienation, 'status_fiduciaria');
+      }
+      if (Array.isArray(enc.seizure)) {
+        enc.seizure = fixEncumbranceStatus(enc.seizure, 'status_penhora');
+      }
+    }
 
     const alerts = parsed.alerts ?? [];
 

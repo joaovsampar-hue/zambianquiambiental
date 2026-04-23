@@ -276,7 +276,17 @@ export async function exportToWord(data: AnalysisData) {
   if (owners.length > 0) {
     children.push(sectionHeading('2. Proprietários'));
     owners.forEach((o: any, i: number) => {
-      children.push(new Paragraph({ spacing: { before: 150 }, children: [new TextRun({ text: `Proprietário ${i + 1}`, bold: true, size: 22, font: 'Arial' })] }));
+      const ownerTitle = (o: any, idx: number): string => {
+        if (o.role === 'usufrutuario') return `Usufrutuário ${idx + 1}`;
+        if (o.role === 'nu_proprietario') return `Proprietário ${idx + 1} — Nu-Proprietário`;
+        return `Proprietário ${idx + 1}`;
+      };
+
+      children.push(new Paragraph({ 
+        spacing: { before: 150 }, 
+        children: [new TextRun({ text: ownerTitle(o, i), bold: true, size: 22, font: 'Arial' })] 
+      }));
+
       const label = roleLabel(o);
       if (label) {
         children.push(new Paragraph({
@@ -294,26 +304,31 @@ export async function exportToWord(data: AnalysisData) {
           vig === 'vigencia_cc2002' ? 'CC/2002 (Lei 10.406)' : '';
         return label && regime ? `${regime} (${label})` : regime;
       })();
+
+      const ownerRows: [string, string][] = [
+        ['Nome', o.name],
+        ['CPF/CNPJ', o.cpf_cnpj],
+        ['RG', o.rg],
+        ['Estado Civil', o.marital_status],
+        ['Regime de Casamento', regimeFull],
+        ['Participação (%)', o.share_percentage],
+        ['Nacionalidade', o.nationality],
+      ];
+
+      if (o.role === 'nu_proprietario_e_proprietario_pleno') {
+        ownerRows.push(['Nua-propriedade (%)', o.share_nu_propriedade || '—']);
+        ownerRows.push(['Propriedade plena (%)', o.share_propriedade_plena || '—']);
+      }
+      if (o.role === 'usufrutuario') {
+        ownerRows.push(['Usufruto (%)', o.share_usufruto || o.share_percentage || '—']);
+        ownerRows.push(['Tipo de usufruto', o.usufruto_tipo === 'vitalicio' ? 'Vitalício' : (o.usufruto_tipo || '—')]);
+        ownerRows.push(['Ato constitutivo', o.usufruto_ato || '—']);
+      }
+
       children.push(new Table({
         width: { size: 9360, type: WidthType.DXA },
         columnWidths: [3500, 5860],
-        rows: labelValueRows(([
-          ['Nome', o.name],
-          ['CPF/CNPJ', o.cpf_cnpj],
-          ['RG', o.rg],
-          ['Estado Civil', o.marital_status],
-          ['Regime de Casamento', regimeFull],
-          ['Participação (%)', o.share_percentage],
-          ['Nacionalidade', o.nationality],
-          ...(o.role === 'nu_proprietario_e_proprietario_pleno' ? [
-            ['Nua-propriedade (%)', o.share_nu_propriedade],
-            ['Propriedade plena (%)', o.share_propriedade_plena]
-          ] : []),
-          ...(o.role === 'usufrutuario' ? [
-            ['Usufruto', `${o.share_usufruto} (${o.usufruto_tipo === 'vitalicio' ? 'vitalício' : 'temporário'})`]
-          ] : []),
-          ...(o.usufruto_ato ? [['Ato de usufruto', o.usufruto_ato]] : []),
-        ] as [string, string][])),
+        rows: labelValueRows(ownerRows),
       }));
       if (o.spouse?.name || o.spouse?.cpf) {
         const spouseLabel = o.spouse?.share_percentage ? 'Cônjuge (co-proprietário)' : 'Cônjuge';
@@ -618,10 +633,18 @@ export function exportToPdf(data: AnalysisData) {
         doc.text(label, 14, y);
         y += 4;
       }
+      
+      const ownerTitle = (owner: any, idx: number): string => {
+        if (owner.role === 'usufrutuario') return `Usufrutuário ${idx + 1}`;
+        if (owner.role === 'nu_proprietario') return `Proprietário ${idx + 1} — Nu-Proprietário`;
+        return `Proprietário ${idx + 1}`;
+      };
+
       doc.setFontSize(10);
       doc.setTextColor(0, 0, 0);
-      doc.text(`Proprietário ${i + 1}`, 14, y);
+      doc.text(ownerTitle(o, i), 14, y);
       y += 2;
+
       // F3 — Regime + lei no mesmo campo
       const regime = (o.marriage_regime ?? '').toString().trim();
       const vig = o.vigencia_lei_divorcio;
@@ -632,32 +655,38 @@ export function exportToPdf(data: AnalysisData) {
           vig === 'vigencia_cc2002' ? 'CC/2002 (Lei 10.406)' : '';
         return label && regime ? `${regime} (${label})` : (regime || '—');
       })();
+
+      const ownerBody: [string, string][] = [
+        ['Nome', o.name || '—'],
+        ['CPF/CNPJ', o.cpf_cnpj || '—'],
+        ['RG', o.rg || '—'],
+        ['Estado Civil', o.marital_status || '—'],
+        ['Regime de Casamento', regimeFull],
+        ['Participação (%)', o.share_percentage || '—'],
+        ['Nacionalidade', o.nationality || '—'],
+      ];
+
+      if (o.role === 'nu_proprietario_e_proprietario_pleno') {
+        ownerBody.push(['Nua-propriedade (%)', o.share_nu_propriedade || '—']);
+        ownerBody.push(['Propriedade plena (%)', o.share_propriedade_plena || '—']);
+      }
+      if (o.role === 'usufrutuario') {
+        ownerBody.push(['Usufruto (%)', o.share_usufruto || o.share_percentage || '—']);
+        ownerBody.push(['Tipo de usufruto', o.usufruto_tipo === 'vitalicio' ? 'Vitalício' : (o.usufruto_tipo || '—')]);
+        ownerBody.push(['Ato constitutivo', o.usufruto_ato || '—']);
+      }
+
       autoTable(doc, {
         startY: y,
         head: [],
-        body: [
-          ['Nome', o.name || '—'],
-          ['CPF/CNPJ', o.cpf_cnpj || '—'],
-          ['RG', o.rg || '—'],
-          ['Estado Civil', o.marital_status || '—'],
-          ['Regime de Casamento', regimeFull],
-          ['Participação (%)', o.share_percentage || '—'],
-          ['Nacionalidade', o.nationality || '—'],
-          ...(o.role === 'nu_proprietario_e_proprietario_pleno' ? [
-            ['Nua-propriedade (%)', o.share_nu_propriedade || '—'],
-            ['Propriedade plena (%)', o.share_propriedade_plena || '—']
-          ] : []),
-          ...(o.role === 'usufrutuario' ? [
-            ['Usufruto', `${o.share_usufruto || '—'} (${o.usufruto_tipo === 'vitalicio' ? 'vitalício' : 'temporário'})`]
-          ] : []),
-          ...(o.usufruto_ato ? [['Ato de usufruto', o.usufruto_ato]] : []),
-        ],
+        body: ownerBody,
         theme: 'grid',
         styles: { fontSize: 9 },
         columnStyles: { 0: { fontStyle: 'bold', cellWidth: 45, fillColor: [232, 245, 233] } },
         margin: { left: 14, right: 14 },
       });
       y = (doc as any).lastAutoTable.finalY + 4;
+
       if (o.spouse?.name || o.spouse?.cpf) {
         if (y > 260) { doc.addPage(); y = 20; }
         const spouseLabel = o.spouse?.share_percentage ? 'Cônjuge (co-proprietário)' : 'Cônjuge';

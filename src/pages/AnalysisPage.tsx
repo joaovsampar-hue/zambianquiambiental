@@ -402,10 +402,24 @@ export default function AnalysisPage() {
                     const spouseIsCoOwner = !!(owner?.spouse?.share_percentage);
                     const fonte = owner?.fonte_dados_documentais;
                     const verifTit = owner?.verificar_titularidade;
+
+                    const getOwnerLabel = (owner: any, index: number): string => {
+                      switch (owner.role) {
+                        case 'usufrutuario':
+                          return `Usufrutuário ${index + 1}`;
+                        case 'nu_proprietario':
+                          return `Proprietário ${index + 1} — Nu-Proprietário`;
+                        case 'nu_proprietario_e_proprietario_pleno':
+                          return `Proprietário ${index + 1}`;
+                        default:
+                          return `Proprietário ${index + 1}`;
+                      }
+                    };
+
                     return (
                       <div key={i} className="p-4 border border-border rounded-lg space-y-3">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <p className="text-sm font-semibold text-primary">Proprietário {i + 1}</p>
+                          <p className="text-sm font-semibold text-primary">{getOwnerLabel(owner, i)}</p>
                           {getRoleBadge(owner)}
                           {fonte === 'averbacao_anterior' && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-info/10 text-info border border-info/30">
@@ -441,18 +455,23 @@ export default function AnalysisPage() {
                           {/* Campos extras para Usufruto / Nu-Propriedade */}
                           {owner.role === 'nu_proprietario_e_proprietario_pleno' && (
                             <>
-                              <FieldWithAiIndicator label="Nua-propriedade" value={owner?.share_nu_propriedade} onChange={v => updateOwner({ share_nu_propriedade: v })} />
-                              <FieldWithAiIndicator label="Propriedade plena" value={owner?.share_propriedade_plena} onChange={v => updateOwner({ share_propriedade_plena: v })} />
+                              <FieldWithAiIndicator label="Nua-propriedade (%)" value={owner?.share_nu_propriedade} onChange={v => updateOwner({ share_nu_propriedade: v })} />
+                              <FieldWithAiIndicator label="Propriedade plena (%)" value={owner?.share_propriedade_plena} onChange={v => updateOwner({ share_propriedade_plena: v })} />
                             </>
                           )}
                           {owner.role === 'usufrutuario' && (
                             <>
                               <FieldWithAiIndicator 
-                                label="Usufruto" 
-                                value={`${owner?.share_usufruto ?? ''}${owner?.usufruto_tipo === 'vitalicio' ? ' (vitalício)' : ''}`} 
+                                label="Usufruto (%)" 
+                                value={owner?.share_usufruto || owner?.share_percentage} 
                                 onChange={v => updateOwner({ share_usufruto: v })} 
                               />
-                              <FieldWithAiIndicator label="Ato" value={owner?.usufruto_ato} onChange={v => updateOwner({ usufruto_ato: v })} />
+                              <FieldWithAiIndicator 
+                                label="Tipo de usufruto" 
+                                value={owner?.usufruto_tipo === 'vitalicio' ? 'Vitalício' : (owner?.usufruto_tipo || '—')} 
+                                onChange={v => updateOwner({ usufruto_tipo: v })} 
+                              />
+                              <FieldWithAiIndicator label="Ato constitutivo" value={owner?.usufruto_ato} onChange={v => updateOwner({ usufruto_ato: v })} />
                             </>
                           )}
                           <div className="col-span-2">
