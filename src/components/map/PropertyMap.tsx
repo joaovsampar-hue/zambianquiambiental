@@ -294,30 +294,11 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
       if (e.name === 'SNCI/INCRA (1ª Norma)' && currentUfRef.current) {
         const snciGroup = snciGroupRef.current;
         if (!snciGroup) return;
-
-        // Indicador visual de carregamento
-        const loadingLayer = L.marker(map.getCenter(), {
-          icon: L.divIcon({
-            className: '',
-            html: '<div class="bg-background/80 backdrop-blur-sm border border-border px-3 py-1.5 rounded-full shadow-lg flex items-center gap-2 text-xs font-medium"><div class="w-3 h-3 border-2 border-primary border-t-transparent animate-spin rounded-full"></div>Carregando SNCI…</div>',
-            iconAnchor: [60, 12],
-          }),
-        }).addTo(snciGroup);
-
+        // Camada visual apenas — sem fetch de dados, sem popup, sem listagem.
+        // Usa o GeoJSON estático do Storage mas renderiza sem interação.
         const uf = currentUfRef.current;
         const fc = await loadSnciGeoJSON(uf);
-        snciGroup.removeLayer(loadingLayer);
-
-        if (!fc) {
-          toast({
-            title: 'SNCI não disponível',
-            description: `Arquivo SNCI para ${uf.toUpperCase()} não encontrado. Faça o upload do GeoJSON no Supabase Storage (bucket: snci-data).`,
-            variant: 'destructive',
-          });
-          return;
-        }
-
-        // Renderiza os polígonos SNCI em roxo escuro para diferenciação visual
+        if (!fc) return; // sem arquivo no Storage — silencioso
         L.geoJSON(fc, {
           style: {
             color: '#6B21A8',
@@ -326,35 +307,7 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
             fillOpacity: 0.15,
             opacity: 0.8,
           },
-          onEachFeature: (feat, layer) => {
-            const p = feat.properties as any;
-            if (!p) return;
-            const nome = p.nome_imove || p.nome_imovel || '—';
-            const area = p.qtd_area_p ? Number(p.qtd_area_p).toFixed(4) + ' ha' : '—';
-            const certif = p.num_certif || '—';
-            const dataCert = p.data_certi || '—';
-            const codImovel = p.cod_imovel || '—';
-            const uf = p.uf_municip || '—';
-            const processo = p.num_proces || '—';
-            const profissional = p.cod_profis || '—';
-            const areaNum = p.qtd_area_p ? Number(p.qtd_area_p) : 0;
-
-            // Extrai UF e município do campo uf_municip (formato: "SP" ou "SP/Valparaíso")
-            const ufCode = uf.split('/')[0]?.trim() || '';
-            const municipio = uf.split('/')[1]?.trim() || uf;
-
-            // Armazena props SNCI no layer — identifyAtPoint vai usar ao montar o popup
-            (layer as any)._snciData = {
-              snciId: `SNCI:${String(codImovel)}`,
-              nome, areaNum, certif, dataCert, codImovel, uf, processo, profissional,
-              municipio, ufCode,
-              geometry: (feat as GeoJSON.Feature).geometry,
-            };
-
-            // NÃO bloqueia propagação — o listener global map.on('click') vai chamar
-            // identifyAtPoint que mescla SICAR + SNCI no mesmo popup.
-
-          },
+          // Sem onEachFeature — nenhum popup, nenhuma interação
         }).addTo(snciGroup);
       }
     });
@@ -922,39 +875,6 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
     const map = mapInstance.current;
     if (!map) return;
 
-    // Verifica se há polígono SNCI sob o ponto clicado (busca nos layers do snciGroup)
-    let snciData: any = null;
-    snciGroupRef.current?.eachLayer((groupLayer: any) => {
-      // snciGroup contém um único L.GeoJSON — iterar suas sub-layers
-      if (typeof groupLayer.eachLayer === 'function') {
-        groupLayer.eachLayer((l: any) => {
-          if (snciData) return;
-          if (!l._snciData) return;
-          // Testa se o ponto está dentro do polígono usando leaflet ou bounds
-          try {
-            // Tenta getBounds primeiro (funciona para polígonos simples)
-            const bounds = l.getBounds?.();
-            if (bounds && !bounds.contains([lat, lng])) return;
-            // Se passou pelo bounds, confirma com contains do L.Polygon se disponível
-            if (typeof l.contains === 'function') {
-              if (l.contains(L.latLng(lat, lng))) snciData = l._snciData;
-            } else if (bounds?.contains([lat, lng])) {
-              // Fallback: bounds é suficiente para polígonos não muito irregulares
-              snciData = l._snciData;
-            }
-          } catch {
-            // Ignora erros de geometria
-          }
-        });
-      } else if (groupLayer._snciData) {
-        // Layer direto (não agrupado)
-        try {
-          const bounds = groupLayer.getBounds?.();
-          if (bounds?.contains([lat, lng])) snciData = groupLayer._snciData;
-        } catch { /* ignore */ }
-      }
-    });
-
     // Inferir UF: prioriza UF do polígono já carregado; fallback no CAR do processo.
     let uf: SicarUF | null = null;
     const currentCar = (dataRef.current.geojson as any)?.properties?.cod_imovel as string | undefined;
@@ -1006,19 +926,6 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
       const loadId = `sicar-load-${feat.cod_imovel}`;
       const neighborId = `sicar-neighbor-${feat.cod_imovel}`;
       const showNeighborBtn = !!onNeighborPick;
-      // Bloco SNCI — aparece embaixo do SIGEF se houver SNCI no ponto
-      const snciBlock = snciData ? `
-        <div class="pt-2 mt-2 border-t border-border space-y-1.5">
-          <div class="font-semibold" style="color:#6B21A8">📋 SNCI/INCRA — 1ª Norma</div>
-          <div><span class="text-muted-foreground">Imóvel:</span> ${snciData.nome}</div>
-          <div><span class="text-muted-foreground">Área:</span> ${snciData.areaNum.toFixed(4)} ha</div>
-          <div><span class="text-muted-foreground">Certificação:</span> ${snciData.certif}</div>
-          <div><span class="text-muted-foreground">Data:</span> ${snciData.dataCert}</div>
-          <div><span class="text-muted-foreground">Cód. imóvel:</span> ${snciData.codImovel}</div>
-          <div><span class="text-muted-foreground">UF/Município:</span> ${snciData.uf}</div>
-          <div><span class="text-muted-foreground">Processo:</span> ${snciData.processo}</div>
-        </div>` : '';
-
       const html = `
         <div class="text-xs space-y-1.5" style="min-width:260px">
           <div class="font-semibold">${feat.tipo_imovel || 'Imóvel SICAR'}</div>
@@ -1026,7 +933,6 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
           <div><span class="text-muted-foreground">Área total:</span> ${feat.area.toFixed(2)} ha</div>
           <div><span class="text-muted-foreground">Município:</span> ${feat.municipio}/${feat.uf}</div>
           ${sigefHtml ?? '<div class="pt-1 text-[11px] text-muted-foreground italic">Sem certificação SIGEF neste ponto.</div>'}
-          ${snciBlock}
           <div class="flex flex-wrap gap-1.5 pt-2">
             <button id="${loadId}" class="px-2 py-1 rounded bg-primary text-primary-foreground text-xs">Carregar este imóvel</button>
             ${showNeighborBtn ? `<button id="${neighborId}" class="px-2 py-1 rounded bg-secondary text-secondary-foreground text-xs border border-border">+ Listar como confrontante</button>` : ''}
@@ -1052,39 +958,13 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
               return m?.[1]?.trim() || undefined;
             })();
 
-            // Se há SNCI no ponto, salva a geometry no cache para renderizar azul/amarelo
-            if (snciData) {
-              const snciId = snciData.snciId;
-              if (!fetchedFeaturesRef.current.has(snciId)) {
-                fetchedFeaturesRef.current.set(snciId, {
-                  type: 'Feature',
-                  geometry: snciData.geometry as any,
-                  properties: {
-                    cod_imovel: snciId,
-                    area: snciData.areaNum,
-                    municipio: snciData.municipio,
-                    uf: snciData.ufCode,
-                  },
-                });
-              }
-              // Passa car = SNCI:xxx para o painel — CAR real do SICAR vai no campo car separado
-              onNeighborPick?.({
-                car: snciId,
-                area: snciData.areaNum,
-                municipio: snciData.municipio,
-                uf: snciData.ufCode,
-                matricula: undefined,          // matrícula vazio para SNCI
-                sicarCar: feat.cod_imovel,     // CAR do SICAR para salvar na coluna CAR
-              });
-            } else {
-              onNeighborPick?.({
-                car: feat.cod_imovel,
-                area: feat.area,
-                municipio: feat.municipio,
-                uf: feat.uf,
-                matricula: sigefMatricula,
-              });
-            }
+            onNeighborPick?.({
+              car: feat.cod_imovel,
+              area: feat.area,
+              municipio: feat.municipio,
+              uf: feat.uf,
+              matricula: sigefMatricula,
+            });
           });
         }
       }, 0);
