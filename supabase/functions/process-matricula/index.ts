@@ -394,7 +394,18 @@ serve(async (req: Request) => {
       throw new Error(`AI Gateway error: ${response.status}`);
     }
 
-    const aiResponse = await response.json();
+    const rawText = await response.text();
+    if (!rawText || !rawText.trim()) {
+      console.error("AI Gateway returned empty body (status", response.status, ")");
+      throw new Error("AI Gateway retornou resposta vazia. Tente novamente — o documento pode ser muito grande.");
+    }
+    let aiResponse: any;
+    try {
+      aiResponse = JSON.parse(rawText);
+    } catch (parseErr) {
+      console.error("Failed to parse AI Gateway response:", rawText.slice(0, 500));
+      throw new Error("Resposta inválida do AI Gateway (JSON malformado).");
+    }
     const content = aiResponse.choices?.[0]?.message?.content ?? "";
 
     const tryParse = (raw: string) => {
