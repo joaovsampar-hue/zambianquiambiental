@@ -58,7 +58,14 @@ Retorne EXATAMENTE este schema (sem markdown, sem texto adicional):
     "conjuge_cpf": string | null,
     "fracao": string | null,
     "verificar_titularidade": boolean,
-    "fonte_dados_documentais": "averbacao_final" | "averbacao_anterior" | "nao_encontrado"
+    "fonte_dados_documentais": "averbacao_final" | "averbacao_anterior" | "nao_encontrado",
+    "role": "proprietario_pleno" | "nu_proprietario" | "usufrutuario" | "nu_proprietario_e_proprietario_pleno",
+    "share_nu_propriedade": string | null,
+    "share_propriedade_plena": string | null,
+    "share_usufruto": string | null,
+    "usufruto_tipo": "vitalicio" | "temporario" | null,
+    "usufruto_termino": string | null,
+    "usufruto_ato": string | null
   }],
   "campos_incertos": string[]
 }
@@ -79,6 +86,13 @@ INSTRUÇÃO 3 — IDENTIFICAÇÃO DO PROPRIETÁRIO ATUAL EM MATRÍCULAS COM MUIT
 A matrícula pode conter dezenas de atos ao longo dos anos. Para "proprietarios_atuais", retorne SOMENTE os últimos adquirentes de cada fração do imóvel — ou seja, aqueles que constam como compradores, donatários ou herdeiros em um ato sem que exista ato posterior transferindo a mesma fração a outra pessoa. Ignore todos os transmitentes e adquirentes intermediários. Se houver dúvida sobre quem é o atual titular de uma fração específica, marque "verificar_titularidade": true. Nunca retorne como proprietário atual alguém que já conste como vendedor ou transmitente em ato posterior da mesma matrícula.
 
 Quando a titularidade de uma fração resultar de formal de partilha ou inventário, extraia a participação de cada herdeiro conforme declarado no ato — ex: '1/6 (um sexto)', '3/6 (três sextos)', '50%'. Preencha o campo share_percentage de cada proprietário com esse valor. Se a matrícula usa frações (ex: 1/6), converta para percentual aproximado ou mantenha a fração — ex: '1/6 (16,67%)'. Nunca deixe share_percentage vazio para herdeiros de partilha.
+
+REGRA ESPECIAL — INVENTÁRIO E ARROLAMENTO:
+Quando um ato de registro for originado de inventário, arrolamento, formal de partilha ou sucessão causa mortis, o proprietário atual NÃO é o falecido — é quem recebeu os bens por partilha.
+
+- O DE CUJUS é indicado por: 'dos bens deixados por óbito de', 'de cujus', 'falecido(a)', 'inventariado(a)', 'espólio de'. NUNCA entra em proprietarios_atuais.
+- Os ADQUIRENTES são: 'viúvo-meeiro', 'herdeiro(s)', 'legatário(s)', 'partilhado e atribuído a', 'coube ao herdeiro', 'adjudicado a'. Estes entram em proprietarios_atuais com as respectivas frações declaradas no ato.
+- O VIÚVO-MEEIRO recebe meação (50% do regime de comunhão) + parte da herança se houver. Usar o percentual exato declarado no ato.
 
 INSTRUÇÃO 3B — VERIFICAÇÃO OBRIGATÓRIA DE FALECIMENTO (executa imediatamente após identificar os proprietários pela Instrução 3):
 
@@ -171,7 +185,32 @@ PASSO 3: Se a fração do falecido não tiver novo titular registrado:
 
 PASSO 4 — PRECEDÊNCIA ABSOLUTA: Um ato de óbito averbado SEMPRE cancela a titularidade anterior, independentemente de qual ato constituiu a propriedade. Proprietário falecido NUNCA aparece em owners.
 
-EXEMPLO: matrícula onde R.22 atribuiu 3/6 a Aparecida Bottan da Silva e AV.25 registrou falecimento em 22/08/2023 — Aparecida NÃO deve constar em owners. Gerar alerta de falecimento (AV.25) e alerta de espólio pendente (3/6).`;
+EXEMPLO: matrícula onde R.22 atribuiu 3/6 a Aparecida Bottan da Silva e AV.25 registrou falecimento em 22/08/2023 — Aparecida NÃO deve constar em owners. Gerar alerta de falecimento (AV.25) e alerta de espólio pendente (3/6).
+
+INSTRUÇÃO 11 — USUFRUTO, NU-PROPRIEDADE E PAPÉIS COMBINADOS:
+
+Quando a matrícula registrar doação com reserva de usufruto ou constituição de usufruto por ato separado, identificar e preencher os campos abaixo para cada pessoa envolvida.
+
+No objeto de cada proprietário em proprietarios_atuais, adicionar os campos:
+- 'role': string com um dos valores:
+    'proprietario_pleno'  — proprietário sem restrição de usufruto
+    'nu_proprietario'     — tem a propriedade mas não o usufruto
+    'usufrutuario'        — tem o usufruto mas não a nua-propriedade
+    'nu_proprietario_e_proprietario_pleno' — tem ambas as condições sobre frações distintas do mesmo imóvel (ex: nu-proprietário de 50% e proprietário pleno de outros 50%)
+- 'share_nu_propriedade': percentual da fração em nua-propriedade (quando role inclui nu_proprietario). Ex: '50%'
+- 'share_propriedade_plena': percentual da fração em propriedade plena (quando role inclui proprietario_pleno). Ex: '50%'
+- 'share_usufruto': percentual do usufruto (quando role inclui usufrutuario). Ex: '50%'
+
+Para usufrutuários que NÃO são proprietários (não têm fração de propriedade), adicioná-los em proprietarios_atuais com role: 'usufrutuario' e fracao com o percentual do usufruto.
+
+REGRAS DE PREENCHIMENTO:
+1. Se uma pessoa doou sua fração e reservou usufruto: role = 'usufrutuario', share_usufruto = percentual doado, fracao = percentual do usufruto. Não tem share_nu_propriedade nem share_propriedade_plena.
+2. Se uma pessoa recebeu fração por herança E também recebeu fração por doação (sem usufruto sobre a parte de herança): role = 'nu_proprietario_e_proprietario_pleno', share_nu_propriedade = fração recebida por doação com usufruto pendente, share_propriedade_plena = fração de propriedade plena, fracao = total geral.
+3. Se o usufruto for vitalício, adicionar 'usufruto_tipo': 'vitalicio'. Se for temporário, 'usufruto_tipo': 'temporario' e 'usufruto_termino': data.
+4. O campo 'usufruto_ato' deve conter o número do ato que constituiu o usufruto (ex: 'R.3-M/6.420').
+
+ALERTA automático quando houver usufruto ativo:
+{ 'severity': 'info', 'message': '[USUFRUTO ATIVO] [NOME DO USUFRUTUÁRIO] possui usufruto [vitalício/temporário] sobre [X%] do imóvel conforme [ATO]. Para o georreferenciamento SIGEF, tanto o Nu-Proprietário quanto o Usufrutuário devem assinar a documentação.' }`;
 
 const RETRY_PROMPT = (nome: string) =>
   `Na análise anterior NÃO foram encontrados CPF e RG do proprietário atual "${nome}". Pesquise em TODOS os atos anteriores desta matrícula — compra e venda, inventários, formais de partilha, averbações — e retorne quaisquer dados documentais (CPF, RG, órgão emissor, data de nascimento) associados ao nome "${nome}". Retorne SOMENTE JSON no formato:

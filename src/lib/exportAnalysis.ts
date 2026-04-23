@@ -169,6 +169,16 @@ const LIMIT_NON_NAMES = new Set([
   'este', 'esse', 'aquele', 'mesmo', 'próprio',
 ]);
 
+const roleLabel = (o: any): string => {
+  switch (o.role) {
+    case 'nu_proprietario': return '[ Nu-Proprietário ]';
+    case 'usufrutuario': return '[ Usufrutuário ]';
+    case 'nu_proprietario_e_proprietario_pleno':
+      return `[ Nu-Proprietário (${o.share_nu_propriedade ?? ''}) + Proprietário Pleno (${o.share_propriedade_plena ?? ''}) ]`;
+    default: return '';
+  }
+};
+
 function extractLimits(roteiro: string): Array<{ tipo: string; nome: string }> {
   if (!roteiro) return [];
   const results: Array<{ tipo: string; nome: string }> = [];
@@ -267,6 +277,13 @@ export async function exportToWord(data: AnalysisData) {
     children.push(sectionHeading('2. Proprietários'));
     owners.forEach((o: any, i: number) => {
       children.push(new Paragraph({ spacing: { before: 150 }, children: [new TextRun({ text: `Proprietário ${i + 1}`, bold: true, size: 22, font: 'Arial' })] }));
+      const label = roleLabel(o);
+      if (label) {
+        children.push(new Paragraph({
+          spacing: { after: 60 },
+          children: [new TextRun({ text: label, bold: true, size: 18, font: 'Arial', color: '1565C0' })],
+        }));
+      }
       // F3 — Regime + Lei 6.515/77 no MESMO campo
       const regime = (o.marriage_regime ?? '').toString().trim();
       const vig = o.vigencia_lei_divorcio;
@@ -288,6 +305,14 @@ export async function exportToWord(data: AnalysisData) {
           ['Regime de Casamento', regimeFull],
           ['Participação (%)', o.share_percentage],
           ['Nacionalidade', o.nationality],
+          ...(o.role === 'nu_proprietario_e_proprietario_pleno' ? [
+            ['Nua-propriedade (%)', o.share_nu_propriedade],
+            ['Propriedade plena (%)', o.share_propriedade_plena]
+          ] : []),
+          ...(o.role === 'usufrutuario' ? [
+            ['Usufruto', `${o.share_usufruto} (${o.usufruto_tipo === 'vitalicio' ? 'vitalício' : 'temporário'})`]
+          ] : []),
+          ...(o.usufruto_ato ? [['Ato de usufruto', o.usufruto_ato]] : []),
         ]),
       }));
       if (o.spouse?.name || o.spouse?.cpf) {
@@ -416,6 +441,13 @@ export async function exportToWord(data: AnalysisData) {
             spacing: { before: 80 },
             children: [new TextRun({ text: `Proprietário ${oi + 1}`, bold: true, size: 20, font: 'Arial' })],
           }));
+          const label = roleLabel(o);
+          if (label) {
+            children.push(new Paragraph({
+              spacing: { after: 60 },
+              children: [new TextRun({ text: label, bold: true, size: 18, font: 'Arial', color: '1565C0' })],
+            }));
+          }
           const regime = (o.marriage_regime ?? '').toString().trim();
           const vig = o.vigencia_lei_divorcio;
           const regimeFull = (() => {
@@ -435,6 +467,14 @@ export async function exportToWord(data: AnalysisData) {
               ['Estado Civil', o.marital_status],
               ['Regime de Casamento', regimeFull],
               ['Participação (%)', o.share_percentage],
+              ...(o.role === 'nu_proprietario_e_proprietario_pleno' ? [
+                ['Nua-propriedade (%)', o.share_nu_propriedade],
+                ['Propriedade plena (%)', o.share_propriedade_plena]
+              ] : []),
+              ...(o.role === 'usufrutuario' ? [
+                ['Usufruto', `${o.share_usufruto} (${o.usufruto_tipo === 'vitalicio' ? 'vitalício' : 'temporário'})`]
+              ] : []),
+              ...(o.usufruto_ato ? [['Ato de usufruto', o.usufruto_ato]] : []),
             ]),
           }));
           if (o.spouse?.name || o.spouse?.cpf) {
@@ -571,7 +611,15 @@ export function exportToPdf(data: AnalysisData) {
     addSection('2. Proprietários');
     owners.forEach((o: any, i: number) => {
       if (y > 260) { doc.addPage(); y = 20; }
+      const label = roleLabel(o);
+      if (label) {
+        doc.setFontSize(8);
+        doc.setTextColor(21, 101, 192);
+        doc.text(label, 14, y);
+        y += 4;
+      }
       doc.setFontSize(10);
+      doc.setTextColor(0, 0, 0);
       doc.text(`Proprietário ${i + 1}`, 14, y);
       y += 2;
       // F3 — Regime + lei no mesmo campo
@@ -595,6 +643,14 @@ export function exportToPdf(data: AnalysisData) {
           ['Regime de Casamento', regimeFull],
           ['Participação (%)', o.share_percentage || '—'],
           ['Nacionalidade', o.nationality || '—'],
+          ...(o.role === 'nu_proprietario_e_proprietario_pleno' ? [
+            ['Nua-propriedade (%)', o.share_nu_propriedade || '—'],
+            ['Propriedade plena (%)', o.share_propriedade_plena || '—']
+          ] : []),
+          ...(o.role === 'usufrutuario' ? [
+            ['Usufruto', `${o.share_usufruto || '—'} (${o.usufruto_tipo === 'vitalicio' ? 'vitalício' : 'temporário'})`]
+          ] : []),
+          ...(o.usufruto_ato ? [['Ato de usufruto', o.usufruto_ato]] : []),
         ],
         theme: 'grid',
         styles: { fontSize: 9 },
@@ -739,6 +795,13 @@ export function exportToPdf(data: AnalysisData) {
       if (ownersList.length > 0) {
         ownersList.forEach((o: any, oi: number) => {
           if (y > 250) { doc.addPage(); y = 20; }
+          const label = roleLabel(o);
+          if (label) {
+            doc.setFontSize(8);
+            doc.setTextColor(21, 101, 192);
+            doc.text(label, 14, y);
+            y += 4;
+          }
           doc.setFontSize(10);
           doc.setTextColor(60, 60, 60);
           doc.text(`Proprietário ${oi + 1}`, 14, y);
@@ -765,6 +828,14 @@ export function exportToPdf(data: AnalysisData) {
               ['Estado Civil', o.marital_status || '—'],
               ['Regime de Casamento', regimeFull],
               ['Participação (%)', o.share_percentage || '—'],
+              ...(o.role === 'nu_proprietario_e_proprietario_pleno' ? [
+                ['Nua-propriedade (%)', o.share_nu_propriedade || '—'],
+                ['Propriedade plena (%)', o.share_propriedade_plena || '—']
+              ] : []),
+              ...(o.role === 'usufrutuario' ? [
+                ['Usufruto', `${o.share_usufruto || '—'} (${o.usufruto_tipo === 'vitalicio' ? 'vitalício' : 'temporário'})`]
+              ] : []),
+              ...(o.usufruto_ato ? [['Ato de usufruto', o.usufruto_ato]] : []),
             ],
             theme: 'grid',
             styles: { fontSize: 9 },

@@ -15,6 +15,25 @@ import { exportToWord, exportToPdf } from '@/lib/exportAnalysis';
 import BoundariesTab from '@/components/analysis/BoundariesTab';
 import DeleteButton from '@/components/DeleteButton';
 
+const getRoleBadge = (owner: any) => {
+  switch (owner.role) {
+    case 'nu_proprietario':
+      return <span className="ml-2 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 border border-blue-300">Nu-Proprietário</span>;
+    case 'usufrutuario':
+      return <span className="ml-2 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 border border-amber-300">Usufrutuário</span>;
+    case 'nu_proprietario_e_proprietario_pleno':
+      return (
+        <span className="ml-2 flex gap-1 inline-flex">
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-100 text-blue-800 border border-blue-300">Nu-Proprietário {owner.share_nu_propriedade}</span>
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-100 text-green-800 border border-green-300">Proprietário Pleno {owner.share_propriedade_plena}</span>
+        </span>
+      );
+    case 'proprietario_pleno':
+    default:
+      return null;
+  }
+};
+
 export function deduplicateConjuges(proprietarios: any[]): any[] {
   if (!proprietarios || proprietarios.length < 2) return proprietarios;
 
@@ -387,6 +406,7 @@ export default function AnalysisPage() {
                       <div key={i} className="p-4 border border-border rounded-lg space-y-3">
                         <div className="flex items-center gap-2 flex-wrap">
                           <p className="text-sm font-semibold text-primary">Proprietário {i + 1}</p>
+                          {getRoleBadge(owner)}
                           {fonte === 'averbacao_anterior' && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-info/10 text-info border border-info/30">
                               dados de averbação anterior
@@ -417,6 +437,24 @@ export default function AnalysisPage() {
                             onChange={v => updateOwner({ marriage_regime: v, vigencia_lei_divorcio: undefined })}
                           />
                           <FieldWithAiIndicator label="Participação (%)" value={owner?.share_percentage} onChange={v => updateOwner({ share_percentage: v })} />
+                          
+                          {/* Campos extras para Usufruto / Nu-Propriedade */}
+                          {owner.role === 'nu_proprietario_e_proprietario_pleno' && (
+                            <>
+                              <FieldWithAiIndicator label="Nua-propriedade" value={owner?.share_nu_propriedade} onChange={v => updateOwner({ share_nu_propriedade: v })} />
+                              <FieldWithAiIndicator label="Propriedade plena" value={owner?.share_propriedade_plena} onChange={v => updateOwner({ share_propriedade_plena: v })} />
+                            </>
+                          )}
+                          {owner.role === 'usufrutuario' && (
+                            <>
+                              <FieldWithAiIndicator 
+                                label="Usufruto" 
+                                value={`${owner?.share_usufruto ?? ''}${owner?.usufruto_tipo === 'vitalicio' ? ' (vitalício)' : ''}`} 
+                                onChange={v => updateOwner({ share_usufruto: v })} 
+                              />
+                              <FieldWithAiIndicator label="Ato" value={owner?.usufruto_ato} onChange={v => updateOwner({ usufruto_ato: v })} />
+                            </>
+                          )}
                           <div className="col-span-2">
                             <FieldWithAiIndicator label="Endereço" value={owner?.address} onChange={v => updateOwner({ address: v })} multiline />
                           </div>
