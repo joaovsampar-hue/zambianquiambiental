@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { Bot, Upload, Loader2, Trash2, MapPin, FileText, User, Building, Plus } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
+import { uploadPdfPagesAsJpegs } from '@/lib/pdfRasterize';
 
 interface NeighborPdf {
   file_name: string;
