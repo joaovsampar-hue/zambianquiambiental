@@ -45,7 +45,7 @@ Retorne EXATAMENTE este schema (sem markdown, sem texto adicional):
   "comarca": string | null,
   "cartorio": string | null,
   "area_hectares": number | null,
-  "proprietarios_atuais": [{
+  "owners": [{
     "nome": string | null,
     "cpf": string | null,
     "rg": string | null,
@@ -83,26 +83,26 @@ INSTRUÇÃO 2B — DENOMINAÇÃO ATUAL DO IMÓVEL:
 A denominação do imóvel pode ter sido alterada ao longo dos anos por averbações. Para o campo 'denominacao_imovel', use SEMPRE a denominação mais recente — ou seja, a que consta na última averbação de alteração de nome (expressões como 'passou a denominar-se', 'passa a ser denominado', 'nova denominação', 'denominação alterada para'). Se houver mais de uma averbação alterando o nome, prevalece a mais recente cronologicamente. Ignore denominações de averbações anteriores. Se não houver nenhuma averbação de alteração de nome, use a denominação do cabeçalho da matrícula.
 
 INSTRUÇÃO 3 — IDENTIFICAÇÃO DO PROPRIETÁRIO ATUAL EM MATRÍCULAS COM MUITAS TRANSMISSÕES:
-A matrícula pode conter dezenas de atos ao longo dos anos. Para "proprietarios_atuais", retorne SOMENTE os últimos adquirentes de cada fração do imóvel — ou seja, aqueles que constam como compradores, donatários ou herdeiros em um ato sem que exista ato posterior transferindo a mesma fração a outra pessoa. Ignore todos os transmitentes e adquirentes intermediários. Se houver dúvida sobre quem é o atual titular de uma fração específica, marque "verificar_titularidade": true. Nunca retorne como proprietário atual alguém que já conste como vendedor ou transmitente em ato posterior da mesma matrícula.
+A matrícula pode conter dezenas de atos ao longo dos anos. Para o array "owners" (proprietários atuais), retorne SOMENTE os últimos adquirentes de cada fração do imóvel — ou seja, aqueles que constam como compradores, donatários ou herdeiros em um ato sem que exista ato posterior transferindo a mesma fração a outra pessoa. Ignore todos os transmitentes e adquirentes intermediários. Se houver dúvida sobre quem é o atual titular de uma fração específica, marque "verificar_titularidade": true. Nunca retorne como proprietário atual alguém que já conste como vendedor ou transmitente em ato posterior da mesma matrícula.
 
 Quando a titularidade de uma fração resultar de formal de partilha ou inventário, extraia a participação de cada herdeiro conforme declarado no ato — ex: '1/6 (um sexto)', '3/6 (três sextos)', '50%'. Preencha o campo share_percentage de cada proprietário com esse valor. Se a matrícula usa frações (ex: 1/6), converta para percentual aproximado ou mantenha a fração — ex: '1/6 (16,67%)'. Nunca deixe share_percentage vazio para herdeiros de partilha.
 
 REGRA ESPECIAL — INVENTÁRIO E ARROLAMENTO:
 Quando um ato de registro for originado de inventário, arrolamento, formal de partilha ou sucessão causa mortis, o proprietário atual NÃO é o falecido — é quem recebeu os bens por partilha.
 
-- O DE CUJUS é indicado por: 'dos bens deixados por óbito de', 'de cujus', 'falecido(a)', 'inventariado(a)', 'espólio de'. NUNCA entra em proprietarios_atuais.
-- Os ADQUIRENTES são: 'viúvo-meeiro', 'herdeiro(s)', 'legatário(s)', 'partilhado e atribuído a', 'coube ao herdeiro', 'adjudicado a'. Estes entram em proprietarios_atuais com as respectivas frações declaradas no ato.
+- O DE CUJUS é indicado por: 'dos bens deixados por óbito de', 'de cujus', 'falecido(a)', 'inventariado(a)', 'espólio de'. NUNCA entra em owners.
+- Os ADQUIRENTES são: 'viúvo-meeiro', 'herdeiro(s)', 'legatário(s)', 'partilhado e atribuído a', 'coube ao herdeiro', 'adjudicado a'. Estes entram em owners com as respectivas frações declaradas no ato.
 - O VIÚVO-MEEIRO recebe meação (50% do regime de comunhão) + parte da herança se houver. Usar o percentual exato declarado no ato.
 
 INSTRUÇÃO 3B — VERIFICAÇÃO OBRIGATÓRIA DE FALECIMENTO (executa imediatamente após identificar os proprietários pela Instrução 3):
 
-Para CADA proprietário identificado em proprietarios_atuais, varrer imediatamente TODAS as averbações da matrícula do início ao fim buscando o nome desse proprietário junto com qualquer das expressões: 'falecimento', 'falecido', 'falecida', 'óbito', 'ocorreu o falecimento', 'certidão de óbito', 'de cujus', 'espólio de', 'espólio do', 'por ato de ofício', 'comunicamos o falecimento', 'em virtude do falecimento'.
+Para CADA proprietário identificado em owners, varrer imediatamente TODAS as averbações da matrícula do início ao fim buscando o nome desse proprietário junto com qualquer das expressões: 'falecimento', 'falecido', 'falecida', 'óbito', 'ocorreu o falecimento', 'certidão de óbito', 'de cujus', 'espólio de', 'espólio do', 'por ato de ofício', 'comunicamos o falecimento', 'em virtude do falecimento'.
 
 ESTA VARREDURA É OBRIGATÓRIA E NÃO PODE SER IGNORADA. Um proprietário que parece 'último adquirente' pela Instrução 3 pode ter falecido depois — a averbação de óbito cancela a titularidade.
 
-Se encontrar averbação de óbito de um proprietário listado em proprietarios_atuais:
-→ Remover esse proprietário COMPLETAMENTE de proprietarios_atuais — ele NUNCA aparece como proprietário atual.
-→ Verificar se há formal de partilha ou novo registro posterior ao óbito. Se houver, os herdeiros averbados entram em proprietarios_atuais com suas frações.
+Se encontrar averbação de óbito de um proprietário listado em owners:
+→ Remover esse proprietário COMPLETAMENTE de owners — ele NUNCA aparece como proprietário atual.
+→ Verificar se há formal de partilha ou novo registro posterior ao óbito. Se houver, os herdeiros averbados entram em owners com suas frações.
 → Se NÃO houver novo titular registrado para a fração, adicionar dois alertas críticos:
    { 'severity': 'critical', 'message': '[FALECIMENTO] O proprietário [NOME] consta como falecido conforme [NÚMERO DA AVERBAÇÃO, ex: AV.25-M.1561], em [DATA]. Fração afetada: [X/Y].' }
    { 'severity': 'critical', 'message': '[ESPÓLIO PENDENTE] A fração de [X/Y] pertencente a [NOME] está sem titular registrado. Necessário inventário e averbação dos herdeiros antes do georreferenciamento.' }
@@ -191,7 +191,7 @@ INSTRUÇÃO 11 — USUFRUTO, NU-PROPRIEDADE E PAPÉIS COMBINADOS:
 
 Quando a matrícula registrar doação com reserva de usufruto ou constituição de usufruto por ato separado, identificar e preencher os campos abaixo para cada pessoa envolvida.
 
-No objeto de cada proprietário em proprietarios_atuais, adicionar os campos:
+No objeto de cada proprietário em owners, adicionar os campos:
 - 'role': string com um dos valores:
     'proprietario_pleno'  — proprietário sem restrição de usufruto
     'nu_proprietario'     — tem a propriedade mas não o usufruto
@@ -201,7 +201,7 @@ No objeto de cada proprietário em proprietarios_atuais, adicionar os campos:
 - 'share_propriedade_plena': percentual da fração em propriedade plena (quando role inclui proprietario_pleno). Ex: '50%'
 - 'share_usufruto': percentual do usufruto (quando role inclui usufrutuario). Ex: '50%'
 
-Para usufrutuários que NÃO são proprietários (não têm fração de propriedade), adicioná-los em proprietarios_atuais com role: 'usufrutuario' e fracao com o percentual do usufruto.
+Para usufrutuários que NÃO são proprietários (não têm fração de propriedade), adicioná-los em owners com role: 'usufrutuario' e fracao com o percentual do usufruto.
 
 REGRAS DE PREENCHIMENTO:
 1. Se uma pessoa doou sua fração e reservou usufruto: role = 'usufrutuario', share_usufruto = percentual doado, fracao = percentual do usufruto. Não tem share_nu_propriedade nem share_propriedade_plena.
@@ -326,14 +326,14 @@ serve(async (req) => {
       parsed = {
         denominacao_imovel: null, matricula_numero: null, ccir: null, ccir_fonte: "nao_encontrado",
         municipio: null, uf: null, comarca: null, cartorio: null, area_hectares: null,
-        proprietarios_atuais: [],
+        owners: [],
         campos_incertos: ["todos"],
       };
     }
 
     // F4 — Retry automático quando o retorno está completamente vazio
     // (denominação null, ccir null, e nenhum proprietário com nome).
-    const propsArr0 = Array.isArray(parsed.proprietarios_atuais) ? parsed.proprietarios_atuais : [];
+    const propsArr0 = Array.isArray(parsed.owners) ? parsed.owners : [];
     const isCompletelyEmpty =
       !parsed.denominacao_imovel &&
       !parsed.ccir &&
@@ -365,7 +365,7 @@ serve(async (req) => {
     }
 
     // Normaliza — REMOVIDOS: alertas, hipotecas e qualquer campo de ônus
-    parsed.proprietarios_atuais = Array.isArray(parsed.proprietarios_atuais) ? parsed.proprietarios_atuais : [];
+    parsed.owners = Array.isArray(parsed.owners) ? parsed.owners : [];
     parsed.campos_incertos = Array.isArray(parsed.campos_incertos) ? parsed.campos_incertos : [];
     if (!parsed.ccir_fonte) parsed.ccir_fonte = parsed.ccir ? "ccir" : "nao_encontrado";
     parsed.tentativas = tentativas;
@@ -378,7 +378,7 @@ serve(async (req) => {
     delete parsed.onus;
 
     // 2) Retry para proprietários sem CPF E sem RG
-    const incompletos = parsed.proprietarios_atuais.filter(
+    const incompletos = parsed.owners.filter(
       (p: any) => p?.nome && !p?.cpf && !p?.rg
     );
 
@@ -398,14 +398,14 @@ serve(async (req) => {
           ]);
           const retryData = tryParseJson(retryContent);
           if (retryData && (retryData.cpf || retryData.rg)) {
-            const idx = parsed.proprietarios_atuais.findIndex((p: any) => p.nome === prop.nome);
+            const idx = parsed.owners.findIndex((p: any) => p.nome === prop.nome);
             if (idx >= 0) {
-              parsed.proprietarios_atuais[idx] = {
-                ...parsed.proprietarios_atuais[idx],
-                cpf: parsed.proprietarios_atuais[idx].cpf ?? retryData.cpf ?? null,
-                rg: parsed.proprietarios_atuais[idx].rg ?? retryData.rg ?? null,
-                rg_orgao: parsed.proprietarios_atuais[idx].rg_orgao ?? retryData.rg_orgao ?? null,
-                data_nascimento: parsed.proprietarios_atuais[idx].data_nascimento ?? retryData.data_nascimento ?? null,
+              parsed.owners[idx] = {
+                ...parsed.owners[idx],
+                cpf: parsed.owners[idx].cpf ?? retryData.cpf ?? null,
+                rg: parsed.owners[idx].rg ?? retryData.rg ?? null,
+                rg_orgao: parsed.owners[idx].rg_orgao ?? retryData.rg_orgao ?? null,
+                data_nascimento: parsed.owners[idx].data_nascimento ?? retryData.data_nascimento ?? null,
                 fonte_dados_documentais: "averbacao_anterior",
               };
             }
@@ -416,8 +416,8 @@ serve(async (req) => {
       }
     }
 
-    if (parsed.proprietarios_atuais) {
-      parsed.proprietarios_atuais = deduplicateConjuges(parsed.proprietarios_atuais);
+    if (parsed.owners) {
+      parsed.owners = deduplicateConjuges(parsed.owners);
     }
 
     return new Response(JSON.stringify(parsed), {

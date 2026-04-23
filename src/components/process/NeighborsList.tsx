@@ -265,7 +265,7 @@ export default function NeighborsList({ processId, clientName, processNumber, ca
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
 
-      const owner = (data?.proprietarios_atuais ?? [])[0] ?? {};
+      const owner = (data?.owners ?? data?.proprietarios_atuais ?? [])[0] ?? {};
       const analyzedAt = new Date().toISOString();
       const mergedExtracted = { ...(form.extracted_data ?? {}), ...data, _analyzed_at: analyzedAt, _pdf_path: filePath };
 
