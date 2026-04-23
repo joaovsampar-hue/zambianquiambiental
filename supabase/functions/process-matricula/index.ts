@@ -394,7 +394,18 @@ serve(async (req: Request) => {
       throw new Error(`AI Gateway error: ${response.status}`);
     }
 
-    const aiResponse = await response.json();
+    const rawText = await response.text();
+    if (!rawText || !rawText.trim()) {
+      console.error("AI Gateway returned empty body (status", response.status, ")");
+      throw new Error("AI Gateway retornou resposta vazia. Tente novamente — o documento pode ser muito grande.");
+    }
+    let aiResponse: any;
+    try {
+      aiResponse = JSON.parse(rawText);
+    } catch (parseErr) {
+      console.error("Failed to parse AI Gateway response:", rawText.slice(0, 500));
+      throw new Error("Resposta inválida do AI Gateway (JSON malformado).");
+    }
     const content = aiResponse.choices?.[0]?.message?.content ?? "";
 
     const tryParse = (raw: string) => {
@@ -433,11 +444,20 @@ serve(async (req: Request) => {
         }),
       });
       if (retryResp.ok) {
-        const retryJson = await retryResp.json();
-        const retryContent = retryJson.choices?.[0]?.message?.content ?? "";
-        const retryParsed = tryParse(retryContent);
-        if (retryParsed && typeof retryParsed === "object") {
-          parsed = retryParsed;
+        const retryRaw = await retryResp.text();
+        if (retryRaw && retryRaw.trim()) {
+          try {
+            const retryJson = JSON.parse(retryRaw);
+            const retryContent = retryJson.choices?.[0]?.message?.content ?? "";
+            const retryParsed = tryParse(retryContent);
+            if (retryParsed && typeof retryParsed === "object") {
+              parsed = retryParsed;
+            }
+          } catch (e) {
+            console.error("Retry parse failed:", retryRaw.slice(0, 300));
+          }
+        } else {
+          console.error("Retry returned empty body");
         }
       }
     }
