@@ -99,6 +99,26 @@ A matrícula pode conter dezenas de atos ao longo dos anos. Para o array "owners
 
 Quando a titularidade de uma fração resultar de formal de partilha ou inventário, extraia a participação de cada herdeiro conforme declarado no ato — ex: '1/6 (um sexto)', '3/6 (três sextos)', '50%'. Preencha o campo share_percentage de cada proprietário com esse valor. Se a matrícula usa frações (ex: 1/6), converta para percentual aproximado ou mantenha a fração — ex: '1/6 (16,67%)'. Nunca deixe share_percentage vazio para herdeiros de partilha.
 
+EXTRAÇÃO DE CONFRONTANTES NO FORMATO ANTIGO DE DIVISAS:
+Matrículas anteriores a 1990 descrevem confrontações em texto corrido com rumos e distâncias, sem usar os pontos cardeais explicitamente. Para extrair os confrontantes, identifique os nomes de pessoas, fazendas, propriedades, cursos d'água e vias que aparecem como referências de divisa.
+
+Padrões a reconhecer:
+- 'divisa de [NOME]' ou 'divisa com [NOME]' → confrontante
+- 'de propriedade de [NOME]' junto a uma divisa → confrontante
+- 'marco na beira do [CORPO HÍDRICO]' → limite hídrico
+- 'estrada da divisa da [FAZENDA]' → via/estrada confrontante
+- 'até encontrar [REFERÊNCIA]' → ponto de divisa
+
+Para a matrícula 6.420, o roteiro diz: 'começa na estrada da divisa da Fazenda São Luiz, de propriedade do Dr. Placido Rocha, seguindo por esta estrada na distância de 133 metros até um marco na divisa de Pedro Victor de Souza ou sucessores, daí defletindo à direita no rumo 89° 15' N.W., na distância de 3.900 metros até um marco na beira do Ribeirão Lageado'
+
+Confrontantes corretos a extrair:
+- north: 'Pedro Victor de Souza ou sucessores'
+- west: 'Ribeirão Lageado'
+- south: 'Ribeirão Lageado'  
+- east: 'Fazenda São Luiz (Dr. Plácido Rocha)'
+
+Aplicar este mesmo raciocínio para qualquer matrícula com roteiro em formato de rumos e distâncias.
+
 REGRA ESPECIAL — INVENTÁRIO E ARROLAMENTO:
 Quando um ato de registro for originado de inventário, arrolamento, formal de partilha ou sucessão causa mortis, o proprietário atual NÃO é o falecido — é quem recebeu os bens por partilha.
 
@@ -129,10 +149,36 @@ Para cada proprietário atual identificado, extraia CPF, RG e órgão emissor. S
 INSTRUÇÃO 5 — ESTADO CIVIL, REGIME DE CASAMENTO E CÔNJUGE:
 Para cada proprietário, extraia o estado civil declarado no ato de aquisição ou em averbação posterior. Se o proprietário for casado, extraia também: nome completo do cônjuge, CPF do cônjuge quando mencionado, RG do cônjuge quando mencionado, e regime de bens (comunhão parcial, comunhão universal, separação total, separação obrigatória ou participação final nos aquestos). Essas informações costumam aparecer na qualificação do adquirente no ato de compra e venda ou em averbação de pacto antenupcial. Se o estado civil mudou entre atos (ex: solteiro na compra, casado em averbação posterior), retorne o estado civil mais recente.
 
+Quando a matrícula declarar 'comunhão de bens, anteriormente à vigência da Lei nº 6.515/77' ou variações similares ('comunhão universal de bens, anterior à Lei 6.515', 'sob regime de comunhão, antes da Lei do Divórcio'):
+- marriage_regime: 'comunhão universal de bens'
+- vigencia_lei_divorcio: 'antes_da_vigencia_6515'
+Esta leitura direta tem precedência sobre o fallback por data.
+
 IMPORTANTE: o campo marriage_regime deve conter SOMENTE o nome do regime de bens (ex: 'comunhão parcial de bens', 'comunhão universal de bens'). NÃO inclua referências à lei, datas ou vigência dentro deste campo — essas informações vão exclusivamente no campo vigencia_lei_divorcio. Exemplos corretos: 'comunhão parcial de bens' (não 'comunhão parcial de bens (Lei 6.515/77)'). O sistema irá compor automaticamente o texto completo usando os dois campos separados.
 
 INSTRUÇÃO 6 — ÔNUS REAIS — IDENTIFICAÇÃO DE STATUS (HIPOTECAS, ALIENAÇÕES FIDUCIÁRIAS E PENHORAS):
-Para CADA ônus real encontrado (hipoteca, alienação fiduciária e penhora), verifique se existe ato posterior de cancelamento, baixa, quitação ou liberação na mesma matrícula que faça referência ao número do ato, livro ou folha do ônus original. Quando houver mais de um ônus do mesmo tipo, retorne o respectivo campo SEMPRE como ARRAY de objetos no formato: [{ "descricao": "...", "ato_origem": "...", "status_<tipo>": "ativa" | "cancelada" | "indefinida", "ato_cancelamento": "..." | null }]. O campo de status segue a convenção: hipoteca → "status_hipoteca"; alienação fiduciária → "status_fiduciaria"; penhora → "status_penhora". Use "cancelada" quando encontrar ato de baixa/cancelamento (registrando o número do ato em "ato_cancelamento"); "ativa" quando NÃO houver ato de cancelamento; "indefinida" se o documento estiver incompleto ou ilegível e não for possível determinar. NUNCA retorne ônus como texto corrido livre — sempre como array estruturado mesmo quando houver apenas 1 (um) registro. Os campos "encumbrances.fiduciary_alienation", "encumbrances.seizure" e "encumbrances.mortgage" devem ser ARRAYS quando houver registros, ou strings vazias "" quando não houver nenhum. Reconheça como cancelamento de hipoteca ou cédula rural hipotecária qualquer um destes atos posteriores ao registro: averbação de cancelamento por instrumento particular autorizado pelo credor, baixa por liquidação da dívida, cancelamento por mandado judicial de quitação, ou qualquer averbação que mencione 'liquidação da dívida', 'cancelamento do R.', 'autorizado o cancelamento', 'em virtude da liquidação'. Cédula Rural Hipotecária e Cédula de Crédito Rural têm o mesmo tratamento de hipoteca para fins de status.
+Para CADA ônus real encontrado (hipoteca, alienação fiduciária e penhora), verifique se existe ato posterior de cancelamento, baixa, quitação ou liberação na mesma matrícula que faça referência ao número do ato, livro ou folha do ônus original. Quando houver mais de um ônus do mesmo tipo, retorne o respectivo campo SEMPRE como ARRAY de objetos no formato: [{ "descricao": "...", "ato_origem": "...", "status_<tipo>": "ativa" | "cancelada" | "indefinida", "ato_cancelamento": "..." | null }]. O campo de status segue a convenção: hipoteca → "status_hipoteca"; alienação fiduciária → "status_fiduciaria"; penhora → "status_penhora".
+
+REGRA DE STATUS — OBRIGATÓRIA E SEM EXCEÇÕES:
+
+PASSO 1: Para cada ônus (R.X), leia TODAS as páginas e averbações do documento procurando referência a esse número de registro.
+
+PASSO 2 — DECISÃO:
+→ Se ato_cancelamento foi preenchido com qualquer valor ≠ null:
+  status DEVE ser 'cancelada'. SEM EXCEÇÃO.
+  A presença do ato_cancelamento É a prova do cancelamento.
+→ Se não encontrou nenhuma averbação de cancelamento em todo o documento:
+  status = 'ativa'
+→ Se documento ilegível/incompleto e impossível determinar:
+  status = 'indefinida'
+
+REGRA DE OURO: ato_cancelamento preenchido = status 'cancelada'.
+Nunca retorne ato_cancelamento preenchido com status 'indefinida' ou 'ativa'.
+
+DISTINÇÃO REGISTRO vs AVERBAÇÃO:
+Ônus reais são constituídos por REGISTROS (R.X). Averbações (AV.X) cancelam ou modificam — nunca constituem ônus. Se aparecer apenas AV. sem R. correspondente para um ônus, trata-se de cancelamento, não de novo ônus.
+
+Reconheça como cancelamento de hipoteca ou cédula rural hipotecária qualquer um destes atos posteriores ao registro: averbação de cancelamento por instrumento particular autorizado pelo credor, baixa por liquidação da dívida, cancelamento por mandado judicial de quitação, ou qualquer averbação que mencione 'liquidação da dívida', 'cancelamento do R.', 'autorizado o cancelamento', 'em virtude da liquidação'. Cédula Rural Hipotecária e Cédula de Crédito Rural têm o mesmo tratamento de hipoteca para fins de status.
 
 INSTRUÇÃO 7 — REGIME DE CASAMENTO E ENQUADRAMENTO LEGISLATIVO:
 
@@ -193,7 +239,7 @@ PASSO 1 — ESCOPO DA VERIFICAÇÃO: Esta verificação aplica-se EXCLUSIVAMENTE
 
 PASSO 2: Se encontrar averbação de óbito referente a um proprietário de owners:
 - Remover esse proprietário completamente de owners. Ele NUNCA deve aparecer como proprietário atual.
-- Verificar se houver formal de partilha ou inventário posterior ao óbito para a fração dele. Se sim, os novos titulares entram em owners com suas respectivas frações.
+- Verificar se houver formal de partilha ou inventário posterior ao óbito para a fração dele. Se sim, os novos titulares entram em owners with suas respectivas frações.
 - Gerar alerta: { "severity": "critical", "message": "[FALECIMENTO] O proprietário [NOME] consta como falecido na matrícula conforme [NÚMERO DA AVERBAÇÃO]. Data: [DATA SE DISPONÍVEL]. Fração afetada: [X]." }
 
 PASSO 3: Se a fração do falecido não tiver novo titular registrado:
@@ -205,28 +251,27 @@ EXEMPLO: matrícula onde R.22 atribuiu 3/6 a Aparecida Bottan da Silva e AV.25 r
 
 INSTRUÇÃO 11 — USUFRUTO, NU-PROPRIEDADE E PAPÉIS COMBINADOS:
 
-Quando a matrícula registrar doação com reserva de usufruto ou constituição de usufruto por ato separado, identificar e preencher os campos abaixo para cada pessoa envolvida.
+Quando encontrar doação com reserva de usufruto ou constituição de usufruto (palavras-chave: 'com reserva de usufruto', 'reservou para si o usufruto vitalício', 'USUFRUTUÁRIO:', 'NÚ-PROPRIETÁRIO:', 'usufruto vitalício sobre as partes ideais'):
 
-No objeto de cada proprietário em owners, adicionar os campos:
-- 'role': string com um dos valores:
-    'proprietario_pleno'  — proprietário sem restrição de usufruto
-    'nu_proprietario'     — tem a propriedade mas não o usufruto
-    'usufrutuario'        — tem o usufruto mas não a nua-propriedade
-    'nu_proprietario_e_proprietario_pleno' — tem ambas as condições sobre frações distintas do mesmo imóvel (ex: nu-proprietário de 50% e proprietário pleno de outros 50%)
-- 'share_nu_propriedade': percentual da fração em nua-propriedade (quando role inclui nu_proprietario). Ex: '50%'
-- 'share_propriedade_plena': percentual da fração em propriedade plena (quando role inclui proprietario_pleno). Ex: '50%'
-- 'share_usufruto': percentual do usufruto (quando role inclui usufrutuario). Ex: '50%'
+Para o DOADOR que reservou usufruto:
+- role: 'usufrutuario'
+- share_percentage: percentual do usufruto
+- share_usufruto: mesmo valor
+- usufruto_tipo: 'vitalicio' ou 'temporario'
+- usufruto_ato: número do ato (ex: 'R.3-M/6.420')
 
-Para usufrutuários que NÃO são proprietários (não têm fração de propriedade), adicioná-los em owners with role: 'usufrutuario' e share_percentage com o percentual do usufruto.
+Para o DONATÁRIO que recebeu com ônus de usufruto:
+- Se só recebeu por doação: role: 'nu_proprietario', share_nu_propriedade: percentual recebido
+- Se também tem fração por herança/compra sem usufruto: role: 'nu_proprietario_e_proprietario_pleno', share_nu_propriedade: fração com usufruto, share_propriedade_plena: fração sem usufruto, share_percentage: total das duas frações
 
-REGRAS DE PREENCHIMENTO:
-1. Se uma pessoa doou sua fração e reservou usufruto: role = 'usufrutuario', share_usufruto = percentual doado, share_percentage = percentual do usufruto. Não tem share_nu_propriedade nem share_propriedade_plena.
-2. Se uma pessoa recebeu fração por herança E também recebeu fração por doação (sem usufruto sobre a parte de herança): role = 'nu_proprietario_e_proprietario_pleno', share_nu_propriedade = fração recebida por doação com usufruto pendente, share_propriedade_plena = fração de propriedade plena, share_percentage = total geral.
-3. Se o usufruto for vitalício, adicionar 'usufruto_tipo': 'vitalicio'. Se for temporário, 'usufruto_tipo': 'temporario' e 'usufruto_termino': data.
-4. O campo 'usufruto_ato' deve conter o número do ato que constituiu o usufruto (ex: 'R.3-M/6.420').
+Gerar alerta:
+{ 'severity': 'info', 'message': '[USUFRUTO ATIVO] [NOME] possui usufruto [vitalício/temporário] sobre [X%] do imóvel conforme [ATO]. Para o georreferenciamento SIGEF, Nu-Proprietário e Usufrutuário devem assinar a documentação em conjunto.' }
 
-ALERTA automático quando houver usufruto ativo:
-{ 'severity': 'info', 'message': '[USUFRUTO ATIVO] [NOME DO USUFRUTUÁRIO] possui usufruto [vitalício/temporário] sobre [X%] do imóvel conforme [ATO]. Para o georreferenciamento SIGEF, tanto o Nu-Proprietário quanto o Usufrutuário devem assinar a documentação.' }`;
+EXEMPLO para matrícula 6.420:
+- JOÃO CORNACINI: recebeu 50% por herança (R.1), doou ao filho Nilton reservando usufruto vitalício (R.3).
+  role: 'usufrutuario', share_percentage: '50%', share_usufruto: '50%', usufruto_tipo: 'vitalicio', usufruto_ato: 'R.3-M/6.420'
+- NILTON VICENTE CORNACINI: recebeu 50% por herança (R.1 — propriedade plena) E 50% por doação de João (R.3 — nua-propriedade).
+  role: 'nu_proprietario_e_proprietario_pleno', share_nu_propriedade: '50%', share_propriedade_plena: '50%', share_percentage: '100%'`;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
