@@ -171,13 +171,13 @@ export default function ProcessDetailPage() {
           created_by: user!.id,
           // SNCI: mantém o identificador prefixado para que o mapa reconheça como cadastrado.
           // O prefixo SNCI: é filtrado na exportação Excel e na exibição da tabela.
-          car_number: n.car,
+          car_number: isSnci ? ((n as any).sicarCar || null) : n.car,
           property_denomination: isSnci
             ? `Imóvel SNCI — ${n.municipio}/${n.uf} (${n.area.toFixed(2)} ha)`
             : `Imóvel rural — ${n.municipio}/${n.uf} (${n.area.toFixed(2)} ha)`,
           phones: [] as any,
           positions: [],
-          registration_number: n.matricula || null,
+          registration_number: null,   // matrícula vazio para SNCI — não usar certif aqui
         };
       });
       const { error } = await supabase.from('process_neighbors').insert(rows as any);
@@ -327,7 +327,12 @@ export default function ProcessDetailPage() {
                 const key = info.car.startsWith('SNCI:') ? info.car : sanitizeCar(info.car);
                 setDetected(prev => {
                   if (prev.some(d => d.car === key)) return prev;
-                  return [...prev, { ...info, car: key, matricula: info.matricula }];
+                  return [...prev, {
+                    ...info,
+                    car: key,
+                    matricula: info.matricula,
+                    sicarCar: info.sicarCar,   // preserva CAR do SICAR para salvar na tabela
+                  }];
                 });
               }}
             />
