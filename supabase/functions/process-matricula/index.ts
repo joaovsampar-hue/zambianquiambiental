@@ -296,7 +296,7 @@ serve(async (req) => {
                 },
                 {
                   type: "image_url",
-                  image_url: { url: `data:application/pdf;base64,${base64}` },
+                  image_url: { url: pdfUrl },
                 },
               ],
             },
