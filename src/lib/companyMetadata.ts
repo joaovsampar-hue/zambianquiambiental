@@ -34,12 +34,20 @@ export interface ExportMetadata {
   producedBy?: string;
 }
 
-const BUCKET = 'company-assets';
+const COMPANY_BUCKET = 'company-assets';   // public — logos
+const SIGNATURES_BUCKET = 'signatures';    // private — digital signatures
 
 export function publicUrl(path: string | null | undefined): string | undefined {
   if (!path) return undefined;
-  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
+  const { data } = supabase.storage.from(COMPANY_BUCKET).getPublicUrl(path);
   return data?.publicUrl;
+}
+
+/** Generate a short-lived signed URL for a private signature file. */
+export async function signedSignatureUrl(path: string | null | undefined): Promise<string | undefined> {
+  if (!path) return undefined;
+  const { data } = await supabase.storage.from(SIGNATURES_BUCKET).createSignedUrl(path, 60 * 10);
+  return data?.signedUrl;
 }
 
 export async function fetchCompanySettings(): Promise<CompanySettings | null> {
@@ -88,7 +96,7 @@ export async function loadExportMetadata(currentUserId: string): Promise<ExportM
     responsibleName: rtProfile?.full_name || undefined,
     responsibleRole: rtProfile?.role_title ?? undefined,
     responsibleRegistry: registry,
-    responsibleSignatureUrl: publicUrl(rtProfile?.signature_path),
+    responsibleSignatureUrl: await signedSignatureUrl(rtProfile?.signature_path),
     producedBy: currentProfile?.full_name || undefined,
   };
 }

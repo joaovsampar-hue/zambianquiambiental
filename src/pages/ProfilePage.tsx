@@ -11,9 +11,9 @@ import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
 import Breadcrumb from '@/components/Breadcrumb';
 import { UserCog, Loader2, Image as ImageIcon } from 'lucide-react';
-import { fetchProfile, publicUrl } from '@/lib/companyMetadata';
+import { fetchProfile, signedSignatureUrl } from '@/lib/companyMetadata';
 
-const BUCKET = 'company-assets';
+const SIGNATURES_BUCKET = 'signatures';
 const REGISTRY_TYPES = ['CREA', 'CFT', 'CRBio', 'OAB', 'Outro'];
 
 export default function ProfilePage() {
@@ -28,6 +28,7 @@ export default function ProfilePage() {
   const [signaturePath, setSignaturePath] = useState<string | null>(null);
   const [isRT, setIsRT] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [signatureUrl, setSignatureUrl] = useState<string | undefined>(undefined);
 
   const { data: profile, isLoading } = useQuery({
     queryKey: ['profile', user?.id],
@@ -45,6 +46,12 @@ export default function ProfilePage() {
       setIsRT(profile.is_responsible_technician);
     }
   }, [profile]);
+
+  useEffect(() => {
+    let cancelled = false;
+    signedSignatureUrl(signaturePath).then(url => { if (!cancelled) setSignatureUrl(url); });
+    return () => { cancelled = true; };
+  }, [signaturePath]);
 
   const save = useMutation({
     mutationFn: async () => {
@@ -75,8 +82,9 @@ export default function ProfilePage() {
     setUploading(true);
     try {
       const ext = file.name.split('.').pop()?.toLowerCase() || 'png';
-      const path = `signatures/${user.id}-${Date.now()}.${ext}`;
-      const { error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: true, contentType: file.type });
+      // Path must start with `${user.id}/` so the signatures-bucket RLS policy permits this user to manage it.
+      const path = `${user.id}/signature-${Date.now()}.${ext}`;
+      const { error } = await supabase.storage.from(SIGNATURES_BUCKET).upload(path, file, { upsert: true, contentType: file.type });
       if (error) throw error;
       setSignaturePath(path);
       toast({ title: 'Assinatura enviada', description: 'Clique em Salvar para aplicar.' });
@@ -88,7 +96,7 @@ export default function ProfilePage() {
   };
 
   if (isLoading) return <div className="text-muted-foreground">Carregando...</div>;
-  const sigUrl = publicUrl(signaturePath);
+  const sigUrl = signatureUrl;
 
   return (
     <div className="space-y-6 animate-fade-in max-w-3xl">

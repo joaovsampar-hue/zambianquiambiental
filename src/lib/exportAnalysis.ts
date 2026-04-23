@@ -297,7 +297,7 @@ export async function exportToWord(data: AnalysisData) {
       children.push(new Table({
         width: { size: 9360, type: WidthType.DXA },
         columnWidths: [3500, 5860],
-        rows: labelValueRows([
+        rows: labelValueRows(([
           ['Nome', o.name],
           ['CPF/CNPJ', o.cpf_cnpj],
           ['RG', o.rg],
@@ -313,7 +313,7 @@ export async function exportToWord(data: AnalysisData) {
             ['Usufruto', `${o.share_usufruto} (${o.usufruto_tipo === 'vitalicio' ? 'vitalício' : 'temporário'})`]
           ] : []),
           ...(o.usufruto_ato ? [['Ato de usufruto', o.usufruto_ato]] : []),
-        ]),
+        ] as [string, string][])),
       }));
       if (o.spouse?.name || o.spouse?.cpf) {
         const spouseLabel = o.spouse?.share_percentage ? 'Cônjuge (co-proprietário)' : 'Cônjuge';
@@ -460,7 +460,7 @@ export async function exportToWord(data: AnalysisData) {
           children.push(new Table({
             width: { size: 9360, type: WidthType.DXA },
             columnWidths: [3500, 5860],
-            rows: labelValueRows([
+            rows: labelValueRows(([
               ['Nome', o.name],
               ['CPF/CNPJ', o.cpf_cnpj],
               ['RG', o.rg],
@@ -475,7 +475,7 @@ export async function exportToWord(data: AnalysisData) {
                 ['Usufruto', `${o.share_usufruto} (${o.usufruto_tipo === 'vitalicio' ? 'vitalício' : 'temporário'})`]
               ] : []),
               ...(o.usufruto_ato ? [['Ato de usufruto', o.usufruto_ato]] : []),
-            ]),
+            ] as [string, string][])),
           }));
           if (o.spouse?.name || o.spouse?.cpf) {
             const spouseLabel = o.spouse?.share_percentage ? 'Cônjuge (co-proprietário)' : 'Cônjuge';
