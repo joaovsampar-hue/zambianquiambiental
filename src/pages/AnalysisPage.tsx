@@ -279,8 +279,18 @@ const consolidateOwners = (matriculasData: any[]) => {
 const consolidateEncumbrances = (matriculasData: any[]) => {
   const all: any[] = [];
   matriculasData.forEach((m, matIdx) => {
-    const enc = m.extracted_data.encumbrances ?? {};
-    const regNum = m.extracted_data.identification?.registration_number || `Mat. ${matIdx + 1}`;
+    const regNumFromId = m.extracted_data.identification?.registration_number;
+    const regNumFromAto = (() => {
+      // Tenta extrair número de matrícula do padrão "M/NUMERO" no primeiro ônus
+      const firstEnc = [
+        ...(Array.isArray(m.extracted_data.encumbrances?.mortgage) ? m.extracted_data.encumbrances.mortgage : []),
+        ...(Array.isArray(m.extracted_data.encumbrances?.fiduciary_alienation) ? m.extracted_data.encumbrances.fiduciary_alienation : []),
+        ...(Array.isArray(m.extracted_data.encumbrances?.seizure) ? m.extracted_data.encumbrances.seizure : []),
+      ][0];
+      const match = firstEnc?.ato_origem?.match(/M\/(\d+[\.\d]*)/);
+      return match?.[1] || null;
+    })();
+    const regNum = regNumFromId || regNumFromAto || `Mat. ${matIdx + 1}`;
     if (Array.isArray(enc.mortgage)) {
       enc.mortgage.filter((h: any) => h.status_hipoteca !== 'cancelada').forEach((h: any) => all.push({ ...h, _matricula: regNum, _tipo: 'Hipoteca' }));
     }
@@ -297,7 +307,17 @@ const consolidateEncumbrances = (matriculasData: any[]) => {
 const consolidateAlerts = (matriculasData: any[], rawAlerts: any[]) => {
   const all: any[] = [];
   matriculasData.forEach((m, matIdx) => {
-    const regNum = m.extracted_data.identification?.registration_number || `Mat. ${matIdx + 1}`;
+    const regNumFromId = m.extracted_data.identification?.registration_number;
+    const regNumFromAto = (() => {
+      const firstEnc = [
+        ...(Array.isArray(m.extracted_data.encumbrances?.mortgage) ? m.extracted_data.encumbrances.mortgage : []),
+        ...(Array.isArray(m.extracted_data.encumbrances?.fiduciary_alienation) ? m.extracted_data.encumbrances.fiduciary_alienation : []),
+        ...(Array.isArray(m.extracted_data.encumbrances?.seizure) ? m.extracted_data.encumbrances.seizure : []),
+      ][0];
+      const match = firstEnc?.ato_origem?.match(/M\/(\d+[\.\d]*)/);
+      return match?.[1] || null;
+    })();
+    const regNum = regNumFromId || regNumFromAto || `Mat. ${matIdx + 1}`;
     (m.alerts ?? []).forEach((a: any) => { all.push({ ...a, message: `[Mat. ${regNum}] ${a.message}` }); });
   });
   const owners = consolidateOwners(matriculasData);
@@ -386,12 +406,50 @@ export default function AnalysisPage() {
       setNewProgress(90);
       const extracted = funcData.extracted_data;
       if (extracted?.owners) { extracted.owners = deduplicateConjuges(extracted.owners); }
-      const newEntry = { pdf_name: newFile.name, extracted_data: extracted || {}, alerts: funcData.alerts || [], status: 'completed' as const };
-      const updatedMatriculasData = [...(formData.matriculas_data || [])];
+      const newEntry = { pdf_name: newFile.name, extracted_data: extracted || {}, alerts: funcData.alerts || [], status: extracted?.identification?.registration_number ? 'completed' : 'empty' as const };
+      let updatedMatriculasData = [...(formData.matriculas_data || [])];
       if (updatedMatriculasData.length === 0 && formData.identification) {
         updatedMatriculasData.push({ pdf_name: analysis.pdf_path?.split('/').pop() || 'Matrícula Original', extracted_data: JSON.parse(JSON.stringify(formData)), alerts: analysis.alerts || [], status: 'completed' as const });
       }
       updatedMatriculasData.push(newEntry);
+
+      // Propagação de falecimentos
+      const deceasedNames = new Set<string>();
+      updatedMatriculasData.forEach(m => {
+        (m.alerts ?? []).forEach((a: any) => {
+          if (a.message?.includes('[FALECIMENTO]')) {
+            const match = a.message.match(/proprietári[oa]\s+([A-ZÁÉÍÓÚÂÊÎÔÛÃÕÇ][A-ZÁÉÍÓÚÂÊÎÔÛÃÕÇa-záéíóúâêîôûãõç\s]+?)\s+consta/i);
+            if (match?.[1]) deceasedNames.add(match[1].trim().toUpperCase());
+          }
+        });
+      });
+
+      if (deceasedNames.size > 0) {
+        updatedMatriculasData = updatedMatriculasData.map(m => {
+          const mRegNum = m.extracted_data?.identification?.registration_number ?? 'desconhecida';
+          const newOwners: any[] = [];
+          const newAlerts = [...(m.alerts ?? [])];
+          let changed = false;
+          for (const o of (m.extracted_data?.owners ?? [])) {
+            const ownerUpper = (o.name ?? '').toUpperCase().trim();
+            const isDead = [...deceasedNames].some(dead => {
+              const deadWords = dead.split(/\s+/);
+              const matches = deadWords.filter(w => w.length > 3 && ownerUpper.includes(w));
+              return matches.length >= 2;
+            });
+            if (isDead) {
+              changed = true;
+              if (!newAlerts.some(a => a.message?.includes('[FALECIMENTO]') && a.message?.includes(o.name))) {
+                newAlerts.push({ severity: 'critical', message: `[FALECIMENTO DETECTADO EM OUTRA MATRÍCULA] ${o.name} consta como falecido em outra matrícula. Removido da matrícula ${mRegNum}.` });
+                if (o.share_percentage) newAlerts.push({ severity: 'critical', message: `[ESPÓLIO PENDENTE] A fração de ${o.share_percentage} pertencente a ${o.name} na matrícula ${mRegNum} pode requerer verificação de inventário.` });
+              }
+            } else newOwners.push(o);
+          }
+          if (!changed) return m;
+          return { ...m, alerts: newAlerts, extracted_data: { ...m.extracted_data, owners: newOwners } };
+        });
+      }
+
       setFormData((prev: any) => ({ ...prev, matriculas_data: updatedMatriculasData }));
       setIsAddModalOpen(false);
       setNewFile(null);
@@ -498,10 +556,19 @@ export default function AnalysisPage() {
                             <div className="flex items-center gap-2">
                               <span className="px-3 py-1 rounded-full text-xs font-semibold bg-primary/10 text-primary border border-primary/20">Matrícula {idx + 1} — {m.extracted_data?.identification?.registration_number || '—'}</span>
                               <span className="text-xs text-muted-foreground">{m.pdf_name}</span>
+                              {m.status === 'error' && <span className="text-[10px] bg-destructive/10 text-destructive px-1.5 py-0.5 rounded border border-destructive/20">Erro</span>}
+                              {m.status === 'empty' && <span className="text-[10px] bg-warning/10 text-warning px-1.5 py-0.5 rounded border border-warning/20">Vazio</span>}
                             </div>
                             <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => { const newM = [...formData.matriculas_data]; newM.splice(idx, 1); updateField('matriculas_data', newM); }}><Trash2 className="w-4 h-4" /></Button>
                           </div>
-                          <IdentificationTable data={m.extracted_data?.identification} updateField={updateField} path={`matriculas_data.${idx}.extracted_data.identification`} />
+                          {m.status === 'error' || m.status === 'empty' ? (
+                            <div className="p-4 rounded-lg bg-destructive/5 border border-destructive/20 text-xs text-destructive flex items-center justify-between">
+                              <span>{m.status === 'error' ? `Erro na análise: ${m.error || 'Erro desconhecido'}` : 'A análise não retornou dados para esta matrícula. Tente reanalisar o arquivo.'}</span>
+                              <Button variant="outline" size="sm" className="h-7 text-[10px]" onClick={() => setIsAddModalOpen(true)}>Reanalisar</Button>
+                            </div>
+                          ) : (
+                            <IdentificationTable data={m.extracted_data?.identification} updateField={updateField} path={`matriculas_data.${idx}.extracted_data.identification`} />
+                          )}
                         </div>
                       ))}
                     </div>

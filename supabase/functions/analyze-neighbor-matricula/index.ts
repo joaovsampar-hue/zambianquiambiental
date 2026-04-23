@@ -137,6 +137,17 @@ Para cada proprietário atual identificado, extraia CPF, RG e órgão emissor. S
 INSTRUÇÃO 5 — ESTADO CIVIL, REGIME DE CASAMENTO E CÔNJUGE:
 Para cada proprietário, extraia o estado civil declarado no ato de aquisição ou em averbação posterior. Se o proprietário for casado, extraia também: nome completo do cônjuge, CPF do cônjuge quando mencionado, RG do cônjuge quando mencionado, e regime de bens (comunhão parcial, comunhão universal, separação total, separação obrigatória ou participação final nos aquestos). Essas informações costumam aparecer na qualificação do adquirente no ato de compra e venda ou em averbação de pacto antenupcial. Se o estado civil mudou entre atos (ex: solteiro na compra, casado em averbação posterior), retorne o estado civil mais recente.
 
+CORRELAÇÃO OBRIGATÓRIA entre marriage_regime e vigencia_lei_divorcio:
+- 'antes_da_vigencia_6515' → o regime PADRÃO da época era comunhão UNIVERSAL de bens. Se a matrícula não especificou o regime explicitamente e o casamento é anterior a 26/12/1977, o regime deve ser 'comunhão universal de bens'. NUNCA retorne 'comunhão parcial de bens' com vigencia 'antes_da_vigencia_6515' — isso é juridicamente impossível pois a comunhão parcial como regime padrão só existe a partir da Lei 6.515/77.
+- 'vigencia_6515' ou 'vigencia_cc2002' → regime padrão é comunhão PARCIAL.
+- Se a matrícula declara explicitamente 'comunhão universal' para casamento após 26/12/1977, isso é válido pois exige pacto antenupcial — manter como declarado e usar o vigencia correto pelo período.
+
+Exemplos corretos:
+✓ comunhão universal + antes_da_vigencia_6515
+✓ comunhão parcial + vigencia_6515
+✓ comunhão universal + vigencia_6515 (com pacto antenupcial)
+✗ comunhão parcial + antes_da_vigencia_6515 (IMPOSSÍVEL — corrigir para comunhão universal)
+
 Quando a matrícula declarar 'comunhão de bens, anteriormente à vigência da Lei nº 6.515/77' ou variações similares ('comunhão universal de bens, anterior à Lei 6.515', 'sob regime de comunhão, antes da Lei do Divórcio'):
 - marriage_regime: 'comunhão universal de bens'
 - vigencia_lei_divorcio: 'antes_da_vigencia_6515'

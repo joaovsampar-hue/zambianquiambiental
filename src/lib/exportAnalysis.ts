@@ -179,6 +179,30 @@ const roleLabel = (o: any): string => {
   }
 };
 
+function regimeComVigencia(regime: unknown, vig: unknown): string {
+  let base = (regime ?? '').toString().trim();
+  
+  // Corrigir inconsistência comunhão parcial + antes da 6515
+  if (base.toLowerCase().includes('parcial') &&
+      (vig === 'antes_da_vigencia_6515' || vig === 'antes_da_vigencia')) {
+    base = 'comunhão universal de bens'; // corrige para o regime correto da época
+  }
+  
+  if (!base) return '—';
+  switch (vig) {
+    case 'antes_da_vigencia_6515':
+    case 'antes_da_vigencia':
+      return `${base} (anterior à Lei 6.515/77 — CC/1916)`;
+    case 'vigencia_6515':
+    case 'apos_vigencia':
+      return `${base} (na vigência da Lei 6.515/77)`;
+    case 'vigencia_cc2002':
+      return `${base} (na vigência do CC/2002 — Lei 10.406/2002)`;
+    default:
+      return base;
+  }
+}
+
 function extractLimits(roteiro: string): Array<{ tipo: string; nome: string }> {
   if (!roteiro) return [];
   const results: Array<{ tipo: string; nome: string }> = [];
@@ -302,16 +326,7 @@ export async function exportToWord(data: AnalysisData) {
           children: [new TextRun({ text: label, bold: true, size: 18, font: 'Arial', color: '1565C0' })],
         }));
       }
-      // F3 — Regime + Lei 6.515/77 no MESMO campo
-      const regime = (o.marriage_regime ?? '').toString().trim();
-      const vig = o.vigencia_lei_divorcio;
-      const regimeFull = (() => {
-        const label =
-          vig === 'antes_da_vigencia_6515' || vig === 'antes_da_vigencia' ? 'anterior à Lei 6.515/77' :
-          vig === 'vigencia_6515' || vig === 'apos_vigencia' ? 'Lei 6.515/77' :
-          vig === 'vigencia_cc2002' ? 'CC/2002 (Lei 10.406)' : '';
-        return label && regime ? `${regime} (${label})` : regime;
-      })();
+      const regimeFull = regimeComVigencia(o.marriage_regime, o.vigencia_lei_divorcio);
 
       const ownerRows: [string, string][] = [
         ['Nome', o.name],
@@ -508,15 +523,7 @@ export async function exportToWord(data: AnalysisData) {
               children: [new TextRun({ text: label, bold: true, size: 18, font: 'Arial', color: '1565C0' })],
             }));
           }
-          const regime = (o.marriage_regime ?? '').toString().trim();
-          const vig = o.vigencia_lei_divorcio;
-          const regimeFull = (() => {
-            const label =
-              vig === 'antes_da_vigencia_6515' || vig === 'antes_da_vigencia' ? 'anterior à Lei 6.515/77' :
-              vig === 'vigencia_6515' || vig === 'apos_vigencia' ? 'Lei 6.515/77' :
-              vig === 'vigencia_cc2002' ? 'CC/2002 (Lei 10.406)' : '';
-            return label && regime ? `${regime} (${label})` : (regime || '—');
-          })();
+          const regimeFull = regimeComVigencia(o.marriage_regime, o.vigencia_lei_divorcio);
           children.push(new Table({
             width: { size: 9360, type: WidthType.DXA },
             columnWidths: [3500, 5860],
@@ -732,16 +739,7 @@ export function exportToPdf(data: AnalysisData) {
       doc.text(ownerTitle(o, i), 14, y);
       y += 2;
 
-      // F3 — Regime + lei no mesmo campo
-      const regime = (o.marriage_regime ?? '').toString().trim();
-      const vig = o.vigencia_lei_divorcio;
-      const regimeFull = (() => {
-        const label =
-          vig === 'antes_da_vigencia_6515' || vig === 'antes_da_vigencia' ? 'anterior à Lei 6.515/77' :
-          vig === 'vigencia_6515' || vig === 'apos_vigencia' ? 'Lei 6.515/77' :
-          vig === 'vigencia_cc2002' ? 'CC/2002 (Lei 10.406)' : '';
-        return label && regime ? `${regime} (${label})` : (regime || '—');
-      })();
+      const regimeFull = regimeComVigencia(o.marriage_regime, o.vigencia_lei_divorcio);
 
       const ownerBody: [string, string][] = [
         ['Nome', o.name || '—'],
@@ -949,15 +947,7 @@ export function exportToPdf(data: AnalysisData) {
           y += 3;
           doc.setTextColor(0, 0, 0);
 
-          const regime = (o.marriage_regime ?? '').toString().trim();
-          const vig = o.vigencia_lei_divorcio;
-          const regimeFull = (() => {
-            const label =
-              vig === 'antes_da_vigencia_6515' || vig === 'antes_da_vigencia' ? 'anterior à Lei 6.515/77' :
-              vig === 'vigencia_6515' || vig === 'apos_vigencia' ? 'Lei 6.515/77' :
-              vig === 'vigencia_cc2002' ? 'CC/2002 (Lei 10.406)' : '';
-            return label && regime ? `${regime} (${label})` : (regime || '—');
-          })();
+          const regimeFull = regimeComVigencia(o.marriage_regime, o.vigencia_lei_divorcio);
 
           autoTable(doc, {
             startY: y,

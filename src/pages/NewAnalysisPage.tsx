@@ -112,8 +112,70 @@ export default function NewAnalysisPage() {
       pdf_name: file.name, 
       extracted_data: extracted_data || {}, 
       alerts: funcData.alerts || [],
-      status: 'completed'
+      status: extracted_data?.identification?.registration_number ? 'completed' : 'empty'
     };
+  };
+
+  const propagateDeaths = (matriculasData: any[]) => {
+    // Coleta todos os falecidos detectados em qualquer matrícula
+    const deceasedNames = new Set<string>();
+    matriculasData.forEach(m => {
+      (m.alerts ?? []).forEach((a: any) => {
+        if (a.message?.includes('[FALECIMENTO]')) {
+          const match = a.message.match(
+            /proprietári[oa]\s+([A-ZÁÉÍÓÚÂÊÎÔÛÃÕÇ][A-ZÁÉÍÓÚÂÊÎÔÛÃÕÇa-záéíóúâêîôûãõç\s]+?)\s+consta/i
+          );
+          if (match?.[1]) deceasedNames.add(match[1].trim().toUpperCase());
+        }
+      });
+    });
+
+    if (deceasedNames.size === 0) return matriculasData;
+
+    return matriculasData.map(m => {
+      const regNum = m.extracted_data?.identification?.registration_number ?? 'desconhecida';
+      const newOwners: any[] = [];
+      const newAlerts = [...(m.alerts ?? [])];
+      let changed = false;
+
+      for (const o of (m.extracted_data?.owners ?? [])) {
+        const ownerUpper = (o.name ?? '').toUpperCase().trim();
+        const isDead = [...deceasedNames].some(dead => {
+          const deadWords = dead.split(/\s+/);
+          // Pelo menos 2 palavras em comum (evita falsos positivos com nomes curtos)
+          const matches = deadWords.filter(w => w.length > 3 && ownerUpper.includes(w));
+          return matches.length >= 2;
+        });
+
+        if (isDead) {
+          changed = true;
+          const alreadyHasAlert = newAlerts.some(a =>
+            a.message?.includes('[FALECIMENTO]') && a.message?.includes(o.name)
+          );
+          if (!alreadyHasAlert) {
+            newAlerts.push({
+              severity: 'critical',
+              message: `[FALECIMENTO DETECTADO EM OUTRA MATRÍCULA] ${o.name} consta como falecido em outra matrícula do mesmo imóvel. Removido dos proprietários ativos da matrícula ${regNum}.`,
+            });
+            if (o.share_percentage) {
+              newAlerts.push({
+                severity: 'critical',
+                message: `[ESPÓLIO PENDENTE] A fração de ${o.share_percentage} pertencente a ${o.name} na matrícula ${regNum} pode requerer verificação de inventário.`,
+              });
+            }
+          }
+        } else {
+          newOwners.push(o);
+        }
+      }
+
+      if (!changed) return m;
+      return {
+        ...m,
+        alerts: newAlerts,
+        extracted_data: { ...m.extracted_data, owners: newOwners },
+      };
+    });
   };
 
   const processAnalysis = useMutation({
@@ -150,13 +212,38 @@ export default function NewAnalysisPage() {
         files.map(file => processMatricula(file, analysis.id, version))
       );
       
-      const matriculasData = results.map((r, i) => ({
-        pdf_name: files[i].name,
-        extracted_data: r.status === 'fulfilled' ? r.value.extracted_data : {},
-        alerts: r.status === 'fulfilled' ? r.value.alerts : [],
-        status: r.status === 'fulfilled' ? 'completed' : 'error',
-        error: r.status === 'rejected' ? (r.reason?.message || String(r.reason)) : null,
-      }));
+      const matriculasData = results.map((r, i) => {
+        const file = files[i];
+        if (r.status === 'rejected') {
+          console.error(`Análise falhou para ${file.name}:`, r.reason);
+          return {
+            pdf_name: file.name,
+            extracted_data: { identification: {}, owners: [], boundaries: {}, encumbrances: {}, transfers: [] },
+            alerts: [{
+              severity: 'critical',
+              message: `Falha na análise do arquivo ${file.name}: ${r.reason?.message ?? 'Erro desconhecido'}`
+            }],
+            status: 'error',
+            error: r.reason?.message ?? 'Erro desconhecido',
+          };
+        }
+        const result = r.value;
+        if (!result?.extracted_data || Object.keys(result.extracted_data).length === 0) {
+          console.warn(`Análise de ${file.name} retornou dados vazios`);
+        }
+        return {
+          pdf_name: file.name,
+          extracted_data: result?.extracted_data ?? {
+            identification: {}, owners: [], boundaries: {},
+            encumbrances: {}, transfers: []
+          },
+          alerts: result?.alerts ?? [],
+          status: result?.extracted_data?.identification?.registration_number
+            ? 'completed' : 'empty',
+        };
+      });
+
+      const matriculasDataFinal = propagateDeaths(matriculasData);
 
       // 4. Update analysis with consolidated results
       setStep('Salvando resultados consolidados...');
@@ -164,11 +251,11 @@ export default function NewAnalysisPage() {
         .from('analyses')
         .update({
           extracted_data: { 
-            matriculas_data: matriculasData,
-            // Fallback para campos individuais usando a primeira matrícula de sucesso (opcional, para compatibilidade)
-            ...(matriculasData.find(m => m.status === 'completed')?.extracted_data || {})
+            matriculas_data: matriculasDataFinal,
+            // Fallback para campos individuais usando a primeira matrícula de sucesso
+            ...(matriculasDataFinal.find(m => m.status === 'completed')?.extracted_data || {})
           },
-          alerts: matriculasData.flatMap(m => m.alerts),
+          alerts: matriculasDataFinal.flatMap(m => m.alerts),
           status: 'completed',
         })
         .eq('id', analysis.id);
