@@ -96,7 +96,7 @@ export default function ProfilePage() {
   };
 
   if (isLoading) return <div className="text-muted-foreground">Carregando...</div>;
-  const sigUrl = publicUrl(signaturePath);
+  const sigUrl = signatureUrl;
 
   return (
     <div className="space-y-6 animate-fade-in max-w-3xl">
