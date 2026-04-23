@@ -203,24 +203,16 @@ serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Download PDF from storage
-    const { data: fileData, error: downloadError } = await supabase.storage
+    // Generate a short-lived signed URL so the AI Gateway can fetch the PDF
+    // directly (avoids loading the entire file into edge worker memory).
+    const { data: signed, error: signErr } = await supabase.storage
       .from("matriculas")
-      .download(pdfPath);
-    if (downloadError) throw downloadError;
-
-    // Convert PDF to base64 for vision model (memory-efficient streaming encode)
-    const arrayBuffer = await fileData.arrayBuffer();
-    const sizeMb = arrayBuffer.byteLength / (1024 * 1024);
-    console.log(`process-matricula: PDF size = ${sizeMb.toFixed(2)} MB`);
-    if (sizeMb > 20) {
-      return new Response(
-        JSON.stringify({ error: `PDF muito grande (${sizeMb.toFixed(1)} MB). Limite: 20 MB. Reduza o arquivo e tente novamente.` }),
-        { status: 413, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+      .createSignedUrl(pdfPath, 60 * 10); // 10 minutes
+    if (signErr || !signed?.signedUrl) {
+      throw signErr ?? new Error("Failed to create signed URL");
     }
-    const { encodeBase64 } = await import("https://deno.land/std@0.224.0/encoding/base64.ts");
-    const base64 = encodeBase64(new Uint8Array(arrayBuffer));
+    const pdfUrl = signed.signedUrl;
+    console.log(`process-matricula: using signed URL for PDF`);
 
     // Send to Lovable AI Gateway with vision
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -242,9 +234,7 @@ serve(async (req) => {
               },
               {
                 type: "image_url",
-                image_url: {
-                  url: `data:application/pdf;base64,${base64}`,
-                },
+                image_url: { url: pdfUrl },
               },
             ],
           },
