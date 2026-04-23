@@ -134,6 +134,16 @@ Deno.serve(async (req) => {
   try {
     const upstreamResp = await fetchUpstream(upstream.url);
     const contentType = upstreamResp.headers.get('content-type') ?? 'application/octet-stream';
+    // Upstream INCRA instável: 5xx ou HTML de erro Apache vem com frequência.
+    // Converte para 204 No Content para o cliente tratar como "sem feature" sem
+    // poluir o devtools com páginas HTML de erro 500.
+    if (upstreamResp.status >= 500) {
+      console.warn('[sigef-incra-proxy] upstream final 5xx, devolvendo 204 ao cliente');
+      return new Response(null, {
+        status: 204,
+        headers: { ...corsHeaders, 'Cache-Control': 'no-store', 'X-Upstream-Tema': upstream.tema, 'X-Upstream-Status': String(upstreamResp.status) },
+      });
+    }
     const body = await upstreamResp.arrayBuffer();
     // Cache agressivo (24h) para respostas válidas — o SIGEF muda devagar (semanas/meses)
     // e o servidor do INCRA é instável: vale guardar bastante para reduzir hits no upstream.
