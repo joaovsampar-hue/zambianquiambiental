@@ -164,25 +164,42 @@ export default function ProcessDetailPage() {
   // Insert em lote dos vizinhos selecionados pelo usuário no painel.
   const bulkInsertNeighbors = useMutation({
     mutationFn: async (list: DetectedNeighbor[]) => {
-      const rows = list.map(n => {
-        const isSnci = n.car.startsWith('SNCI:');
-        return {
-          process_id: id!,
-          created_by: user!.id,
-          // SNCI: mantém o identificador prefixado para que o mapa reconheça como cadastrado.
-          // O prefixo SNCI: é filtrado na exportação Excel e na exibição da tabela.
-          car_number: isSnci ? ((n as any).sicarCar || null) : n.car,
-          property_denomination: isSnci
-            ? `Imóvel SNCI — ${n.municipio}/${n.uf} (${n.area.toFixed(2)} ha)`
-            : `Imóvel rural — ${n.municipio}/${n.uf} (${n.area.toFixed(2)} ha)`,
-          phones: [] as any,
-          positions: [],
-          registration_number: null,   // matrícula vazio para SNCI — não usar certif aqui
-        };
-      });
+      // Busca CARs já cadastrados para evitar duplicatas
+      const { data: existing } = await supabase
+        .from('process_neighbors')
+        .select('car_number')
+        .eq('process_id', id!);
+      const existingCars = new Set(
+        (existing ?? []).map(r => r.car_number).filter(Boolean)
+      );
+
+      const rows = list
+        .map(n => {
+          const isSnci = n.car.startsWith('SNCI:');
+          const carToSave = isSnci ? ((n as any).sicarCar || null) : n.car;
+          return {
+            process_id: id!,
+            created_by: user!.id,
+            car_number: carToSave,
+            property_denomination: isSnci
+              ? `Imóvel SNCI — ${n.municipio}/${n.uf} (${n.area.toFixed(2)} ha)`
+              : `Imóvel rural — ${n.municipio}/${n.uf} (${n.area.toFixed(2)} ha)`,
+            phones: [] as any,
+            positions: [],
+            registration_number: isSnci ? null : (n.matricula || null),
+          };
+        })
+        // Remove duplicatas: não inserir se o car_number já existe no banco
+        .filter(r => !r.car_number || !existingCars.has(r.car_number));
+
+      if (rows.length === 0) {
+        toast({ title: 'Todos os confrontantes já estão cadastrados' });
+        return 0;
+      }
+
       const { error } = await supabase.from('process_neighbors').insert(rows as any);
       if (error) throw error;
-      return list.length;
+      return rows.length;
     },
     onSuccess: (count) => {
       qc.invalidateQueries({ queryKey: ['neighbors', id] });

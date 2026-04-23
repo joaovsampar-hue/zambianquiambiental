@@ -1043,9 +1043,14 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
         if (showNeighborBtn) {
           document.getElementById(neighborId)?.addEventListener('click', () => {
             loadingPopup.close();
-            const sigefMatricula = (sigefHtml ?? '').match(
-              /Matrícula:<\/span>\s*([^<]+)/
-            )?.[1]?.trim() || undefined;
+            // Extrai matrícula do bloco SIGEF — testa múltiplos padrões de whitespace
+            const sigefMatricula = (() => {
+              if (!sigefHtml) return undefined;
+              // Remove tags HTML intermediárias e normaliza espaços
+              const plain = sigefHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+              const m = plain.match(/Matr[íi]cula\s*:\s*([^\s<]+)/i);
+              return m?.[1]?.trim() || undefined;
+            })();
 
             // Se há SNCI no ponto, salva a geometry no cache para renderizar azul/amarelo
             if (snciData) {
