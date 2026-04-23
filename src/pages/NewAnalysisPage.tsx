@@ -45,7 +45,7 @@ export default function NewAnalysisPage() {
   const presetPropertyId = searchParams.get('propertyId') ?? '';
   const [clientId, setClientId] = useState('');
   const [propertyId, setPropertyId] = useState(presetPropertyId);
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [progress, setProgress] = useState(0);
   const [step, setStep] = useState('');
 
@@ -77,51 +77,64 @@ export default function NewAnalysisPage() {
     },
   });
 
+  const processMatricula = async (file: File, analysisId: string, version: number) => {
+    // Step 1: Upload original PDF
+    const ts = Date.now();
+    const filePath = `${user!.id}/${ts}_${file.name}`;
+    const { error: uploadError } = await supabase.storage.from('matriculas').upload(filePath, file);
+    if (uploadError) throw uploadError;
+
+    // Step 1b: Rasterize PDF to JPEGs
+    const pageBlobs = await rasterizePdfToJpegs(file);
+    const pagesPrefix = `${user!.id}/${ts}_pages`;
+    const imagePaths: string[] = [];
+    for (let i = 0; i < pageBlobs.length; i++) {
+      const path = `${pagesPrefix}/page-${String(i + 1).padStart(3, '0')}.jpg`;
+      const { error: pErr } = await supabase.storage
+        .from('matriculas')
+        .upload(path, pageBlobs[i], { contentType: 'image/jpeg' });
+      if (pErr) throw pErr;
+      imagePaths.push(path);
+    }
+
+    // Step 2: Extract text from PDF
+    const { data: funcData, error: funcError } = await supabase.functions.invoke('process-matricula', {
+      body: { analysisId, pdfPath: filePath, imagePaths },
+    });
+    if (funcError) throw funcError;
+
+    const extracted_data = funcData.extracted_data;
+    if (extracted_data?.owners) {
+      extracted_data.owners = deduplicateConjuges(extracted_data.owners);
+    }
+
+    return { 
+      pdf_name: file.name, 
+      extracted_data: extracted_data || {}, 
+      alerts: funcData.alerts || [],
+      status: 'completed'
+    };
+  };
+
   const processAnalysis = useMutation({
     mutationFn: async () => {
-      if (!file || !propertyId) throw new Error('Selecione um imóvel e um arquivo');
+      if (files.length === 0 || !propertyId) throw new Error('Selecione um imóvel e pelo menos um arquivo');
 
-      // Step 1: Upload original PDF (kept for audit/reference)
-      setStep('Enviando PDF...');
-      setProgress(5);
-      const ts = Date.now();
-      const filePath = `${user!.id}/${ts}_${file.name}`;
-      const { error: uploadError } = await supabase.storage.from('matriculas').upload(filePath, file);
-      if (uploadError) throw uploadError;
-      setProgress(15);
-
-      // Step 1b: Rasterize PDF to JPEGs in the browser, then upload each page.
-      // Gemini accepts JPEG via signed URL natively (PDFs would require base64
-      // which exceeds the edge function's memory for large files).
-      setStep('Convertendo páginas em imagens...');
-      const pageBlobs = await rasterizePdfToJpegs(file);
-      const pagesPrefix = `${user!.id}/${ts}_pages`;
-      const imagePaths: string[] = [];
-      for (let i = 0; i < pageBlobs.length; i++) {
-        const path = `${pagesPrefix}/page-${String(i + 1).padStart(3, '0')}.jpg`;
-        const { error: pErr } = await supabase.storage
-          .from('matriculas')
-          .upload(path, pageBlobs[i], { contentType: 'image/jpeg' });
-        if (pErr) throw pErr;
-        imagePaths.push(path);
-        setProgress(15 + Math.round(((i + 1) / pageBlobs.length) * 25));
-      }
-
-      // Step 2: Get existing version count
+      // 1. Get existing version count
       const { count } = await supabase
         .from('analyses')
         .select('id', { count: 'exact', head: true })
         .eq('property_id', propertyId);
       const version = (count ?? 0) + 1;
 
-      // Step 3: Create analysis record
+      // 2. Create initial analysis record
       setStep('Criando registro da análise...');
+      setProgress(5);
       const { data: analysis, error: insertError } = await supabase
         .from('analyses')
         .insert({
           property_id: propertyId,
           created_by: user!.id,
-          pdf_path: filePath,
           status: 'processing',
           version,
           process_id: processId ?? null,
@@ -129,32 +142,33 @@ export default function NewAnalysisPage() {
         .select('id')
         .single();
       if (insertError) throw insertError;
-      setProgress(40);
+      setProgress(10);
 
-      // Step 4: Extract text from PDF (send to edge function)
-      setStep('Processando com IA...');
-      setProgress(50);
-
-      const { data: funcData, error: funcError } = await supabase.functions.invoke('process-matricula', {
-        body: { analysisId: analysis.id, pdfPath: filePath, imagePaths },
-      });
-
-      if (funcError) throw funcError;
-      setProgress(90);
-
-      // Step 5: Update analysis with results
-      setStep('Salvando resultados...');
+      // 3. Process all files in parallel
+      setStep(`Analisando ${files.length} matrícula(s) em paralelo...`);
+      const results = await Promise.allSettled(
+        files.map(file => processMatricula(file, analysis.id, version))
+      );
       
-      const extracted_data = funcData.extracted_data;
-      if (extracted_data?.owners) {
-        extracted_data.owners = deduplicateConjuges(extracted_data.owners);
-      }
+      const matriculasData = results.map((r, i) => ({
+        pdf_name: files[i].name,
+        extracted_data: r.status === 'fulfilled' ? r.value.extracted_data : {},
+        alerts: r.status === 'fulfilled' ? r.value.alerts : [],
+        status: r.status === 'fulfilled' ? 'completed' : 'error',
+        error: r.status === 'rejected' ? (r.reason?.message || String(r.reason)) : null,
+      }));
 
+      // 4. Update analysis with consolidated results
+      setStep('Salvando resultados consolidados...');
       const { error: updateError } = await supabase
         .from('analyses')
         .update({
-          extracted_data: extracted_data,
-          alerts: funcData.alerts,
+          extracted_data: { 
+            matriculas_data: matriculasData,
+            // Fallback para campos individuais usando a primeira matrícula de sucesso (opcional, para compatibilidade)
+            ...(matriculasData.find(m => m.status === 'completed')?.extracted_data || {})
+          },
+          alerts: matriculasData.flatMap(m => m.alerts),
           status: 'completed',
         })
         .eq('id', analysis.id);
@@ -176,15 +190,15 @@ export default function NewAnalysisPage() {
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    const f = e.dataTransfer.files[0];
-    if (f?.type === 'application/pdf') setFile(f);
+    const droppedFiles = Array.from(e.dataTransfer.files).filter(f => f.type === 'application/pdf');
+    if (droppedFiles.length > 0) setFiles(prev => [...prev, ...droppedFiles]);
   }, []);
 
   return (
     <div className="max-w-2xl mx-auto space-y-6 animate-fade-in">
       <div>
         <h1 className="text-2xl font-heading font-bold">Nova Análise</h1>
-        <p className="text-muted-foreground text-sm">Upload de matrícula para extração automática</p>
+        <p className="text-muted-foreground text-sm">Upload de matrícula(s) para extração automática consolidada</p>
       </div>
 
       <Card>
@@ -220,22 +234,31 @@ export default function NewAnalysisPage() {
               id="pdf-input"
               type="file"
               accept=".pdf"
+              multiple
               className="hidden"
-              onChange={e => e.target.files?.[0] && setFile(e.target.files[0])}
+              onChange={e => {
+                const selectedFiles = Array.from(e.target.files ?? []).filter(f => f.type === 'application/pdf');
+                if (selectedFiles.length > 0) setFiles(prev => [...prev, ...selectedFiles]);
+              }}
             />
-            {file ? (
-              <div className="flex items-center justify-center gap-3">
-                <FileText className="w-8 h-8 text-primary" />
-                <div className="text-left">
-                  <p className="font-medium text-sm">{file.name}</p>
-                  <p className="text-xs text-muted-foreground">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
-                </div>
+            {files.length > 0 ? (
+              <div className="space-y-3">
+                {files.map((f, i) => (
+                  <div key={i} className="flex items-center justify-center gap-3">
+                    <FileText className="w-6 h-6 text-primary" />
+                    <div className="text-left">
+                      <p className="font-medium text-sm">{f.name}</p>
+                      <p className="text-xs text-muted-foreground">{(f.size / 1024 / 1024).toFixed(2)} MB</p>
+                    </div>
+                  </div>
+                ))}
+                <p className="text-xs text-primary font-medium mt-2">+ Clique ou arraste para adicionar mais</p>
               </div>
             ) : (
               <div>
                 <Upload className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
-                <p className="text-sm font-medium">Arraste o PDF aqui ou clique para selecionar</p>
-                <p className="text-xs text-muted-foreground mt-1">PDF escaneado ou com texto selecionável · Até 30 páginas</p>
+                <p className="text-sm font-medium">Arraste os PDFs aqui ou clique para selecionar</p>
+                <p className="text-xs text-muted-foreground mt-1">Selecione uma ou mais matrículas para análise conjunta</p>
               </div>
             )}
           </div>
@@ -252,13 +275,13 @@ export default function NewAnalysisPage() {
 
           <Button
             className="w-full"
-            disabled={!file || !propertyId || processAnalysis.isPending}
+            disabled={files.length === 0 || !propertyId || processAnalysis.isPending}
             onClick={() => processAnalysis.mutate()}
           >
             {processAnalysis.isPending ? (
-              <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Processando...</>
+              <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Processando {files.length} arquivos...</>
             ) : (
-              'Iniciar Análise'
+              `Iniciar Análise (${files.length} arquivo${files.length !== 1 ? 's' : ''})`
             )}
           </Button>
         </CardContent>

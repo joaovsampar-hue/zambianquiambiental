@@ -231,7 +231,15 @@ function extractLimits(roteiro: string): Array<{ tipo: string; nome: string }> {
 }
 
 export async function exportToWord(data: AnalysisData) {
-  const ed = data.extractedData ?? {};
+  let ed = data.extractedData ?? {};
+  
+  // Consolidate if multiple matriculas exist
+  if (ed.matriculas_data && ed.matriculas_data.length > 0) {
+    const owners = consolidateOwnersForExport(ed.matriculas_data);
+    const encumbrances = consolidateEncumbrancesForExport(ed.matriculas_data);
+    ed = { ...ed, owners, _consolidatedEncumbrances: encumbrances };
+  }
+
   const id = ed.identification ?? {};
   const owners = ed.owners ?? [];
   const enc = ed.encumbrances ?? {};
@@ -354,23 +362,60 @@ export async function exportToWord(data: AnalysisData) {
   // F1 — Encumbrances: iterar arrays
   children.push(sectionHeading('3. Ônus e Restrições'));
 
-  const encSections: Array<[string, any, string]> = [
-    ['Alienação Fiduciária', enc.fiduciary_alienation, 'status_fiduciaria'],
-    ['Penhora', enc.seizure, 'status_penhora'],
-    ['Hipoteca', enc.mortgage, 'status_hipoteca'],
-  ];
-  for (const [label, value, statusKey] of encSections) {
-    children.push(new Paragraph({ spacing: { before: 200, after: 80 }, children: [new TextRun({ text: label, bold: true, size: 22, font: 'Arial' })] }));
-    if (isArrayOfObjects(value)) {
-      children.push(new Table({
-        width: { size: 9360, type: WidthType.DXA },
-        rows: encumbranceRowsWord(value, statusKey),
-      }));
-    } else if (Array.isArray(value) && value.length === 0) {
-      children.push(new Paragraph({ children: [new TextRun({ text: 'Nenhum registrado', italics: true, size: 20, font: 'Arial', color: '888888' })] }));
-    } else {
-      children.push(new Paragraph({ children: [new TextRun({ text: safeText(value), size: 20, font: 'Arial' })] }));
+  if (ed._consolidatedEncumbrances && ed._consolidatedEncumbrances.length > 0) {
+    const header = new TableRow({
+      children: ['Matrícula', 'Tipo', 'Ato origem', 'Status', 'Descrição'].map(h =>
+        new TableCell({
+          borders: cellBorders,
+          shading: { fill: 'E8F5E9', type: ShadingType.CLEAR },
+          margins: { top: 60, bottom: 60, left: 80, right: 80 },
+          children: [new Paragraph({ children: [new TextRun({ text: h, bold: true, size: 18, font: 'Arial' })] })],
+        })
+      ),
+    });
+    const dataRows = ed._consolidatedEncumbrances.map((it: any) => {
+      return new TableRow({
+        children: [
+          it._matricula,
+          it._tipo,
+          it.ato_origem ?? '—',
+          it._status ?? 'ativa',
+          it.descricao ?? '—',
+        ].map((txt, idx) =>
+          new TableCell({
+            borders: cellBorders,
+            margins: { top: 50, bottom: 50, left: 80, right: 80 },
+            width: idx === 4 ? { size: 4000, type: WidthType.DXA } : undefined,
+            children: [new Paragraph({ children: [new TextRun({ text: String(txt || '—'), size: 18, font: 'Arial' })] })],
+          })
+        ),
+      });
+    });
+    children.push(new Table({
+      width: { size: 9360, type: WidthType.DXA },
+      rows: [header, ...dataRows],
+    }));
+  } else if (!ed._consolidatedEncumbrances) {
+    const encSections: Array<[string, any, string]> = [
+      ['Alienação Fiduciária', enc.fiduciary_alienation, 'status_fiduciaria'],
+      ['Penhora', enc.seizure, 'status_penhora'],
+      ['Hipoteca', enc.mortgage, 'status_hipoteca'],
+    ];
+    for (const [label, value, statusKey] of encSections) {
+      children.push(new Paragraph({ spacing: { before: 200, after: 80 }, children: [new TextRun({ text: label, bold: true, size: 22, font: 'Arial' })] }));
+      if (isArrayOfObjects(value)) {
+        children.push(new Table({
+          width: { size: 9360, type: WidthType.DXA },
+          rows: encumbranceRowsWord(value, statusKey),
+        }));
+      } else if (Array.isArray(value) && value.length === 0) {
+        children.push(new Paragraph({ children: [new TextRun({ text: 'Nenhum registrado', italics: true, size: 20, font: 'Arial', color: '888888' })] }));
+      } else {
+        children.push(new Paragraph({ children: [new TextRun({ text: safeText(value), size: 20, font: 'Arial' })] }));
+      }
     }
+  } else {
+    children.push(new Paragraph({ children: [new TextRun({ text: 'Nenhum ônus ativo identificado', italics: true, size: 20, font: 'Arial', color: '888888' })] }));
   }
 
   // Outros campos textuais
@@ -560,8 +605,50 @@ export async function exportToWord(data: AnalysisData) {
   saveAs(buffer, `Analise_${data.propertyName.replace(/\s+/g, '_')}_v${data.version}.docx`);
 }
 
+function consolidateOwnersForExport(matriculasData: any[]) {
+  const ownerMap = new Map<string, any>();
+  matriculasData.forEach((m, matIdx) => {
+    (m.extracted_data.owners ?? []).forEach((owner: any) => {
+      const key = owner.cpf_cnpj || owner.name;
+      if (!ownerMap.has(key)) {
+        ownerMap.set(key, { ...owner, matriculas: [matIdx + 1] });
+      } else {
+        const existing = ownerMap.get(key);
+        if (!existing.matriculas.includes(matIdx + 1)) { existing.matriculas.push(matIdx + 1); }
+        if (existing.role !== owner.role) { existing.role_divergence = true; }
+      }
+    });
+  });
+  return Array.from(ownerMap.values());
+}
+
+function consolidateEncumbrancesForExport(matriculasData: any[]) {
+  const all: any[] = [];
+  matriculasData.forEach((m, matIdx) => {
+    const enc = m.extracted_data.encumbrances ?? {};
+    const regNum = m.extracted_data.identification?.registration_number || `Mat. ${matIdx + 1}`;
+    if (Array.isArray(enc.mortgage)) {
+      enc.mortgage.filter((h: any) => h.status_hipoteca !== 'cancelada').forEach((h: any) => all.push({ ...h, _matricula: regNum, _tipo: 'Hipoteca', _status: h.status_hipoteca }));
+    }
+    if (Array.isArray(enc.fiduciary_alienation)) {
+      enc.fiduciary_alienation.filter((f: any) => f.status_fiduciaria !== 'cancelada').forEach((f: any) => all.push({ ...f, _matricula: regNum, _tipo: 'Alienação Fiduciária', _status: f.status_fiduciaria }));
+    }
+    if (Array.isArray(enc.seizure)) {
+      enc.seizure.filter((p: any) => p.status_penhora !== 'cancelada').forEach((p: any) => all.push({ ...p, _matricula: regNum, _tipo: 'Penhora', _status: p.status_penhora }));
+    }
+  });
+  return all;
+}
+
 export function exportToPdf(data: AnalysisData) {
-  const ed = data.extractedData ?? {};
+  let ed = data.extractedData ?? {};
+  
+  if (ed.matriculas_data && ed.matriculas_data.length > 0) {
+    const owners = consolidateOwnersForExport(ed.matriculas_data);
+    const encumbrances = consolidateEncumbrancesForExport(ed.matriculas_data);
+    ed = { ...ed, owners, _consolidatedEncumbrances: encumbrances };
+  }
+
   const id = ed.identification ?? {};
   const owners = ed.owners ?? [];
   const enc = ed.encumbrances ?? {};
@@ -717,32 +804,57 @@ export function exportToPdf(data: AnalysisData) {
 
   // F1 — Encumbrances: array → tabela; vazio → "Nenhum registrado"; texto → texto
   addSection('3. Ônus e Restrições');
-  const encSections: Array<[string, any, string]> = [
-    ['Alienação Fiduciária', enc.fiduciary_alienation, 'status_fiduciaria'],
-    ['Penhora', enc.seizure, 'status_penhora'],
-    ['Hipoteca', enc.mortgage, 'status_hipoteca'],
-  ];
-  for (const [label, value, statusKey] of encSections) {
-    if (y > 250) { doc.addPage(); y = 20; }
-    doc.setFontSize(11);
-    doc.setTextColor(...green);
-    doc.text(label, 14, y);
-    y += 5;
-    doc.setTextColor(0, 0, 0);
-    doc.setFontSize(9);
-    if (isArrayOfObjects(value)) {
-      y = encumbranceTableForPdf(doc, y, value, statusKey);
-    } else if (Array.isArray(value) && value.length === 0) {
-      doc.setTextColor(120, 120, 120);
-      doc.text('Nenhum registrado', 14, y);
+  
+  if (ed._consolidatedEncumbrances && ed._consolidatedEncumbrances.length > 0) {
+    autoTable(doc, {
+      startY: y,
+      head: [['Matrícula', 'Tipo', 'Ato origem', 'Status', 'Descrição']],
+      body: ed._consolidatedEncumbrances.map((it: any) => [
+        it._matricula,
+        it._tipo,
+        it.ato_origem ?? '—',
+        it._status ?? 'ativa',
+        (it.descricao ?? '—').toString(),
+      ]),
+      theme: 'grid',
+      styles: { fontSize: 8, cellPadding: 2, overflow: 'linebreak' },
+      headStyles: { fillColor: [232, 245, 233], textColor: [30, 94, 50], fontStyle: 'bold' },
+      margin: { left: 14, right: 14 },
+    });
+    y = (doc as any).lastAutoTable.finalY + 4;
+  } else if (!ed._consolidatedEncumbrances) {
+    const encSections: Array<[string, any, string]> = [
+      ['Alienação Fiduciária', enc.fiduciary_alienation, 'status_fiduciaria'],
+      ['Penhora', enc.seizure, 'status_penhora'],
+      ['Hipoteca', enc.mortgage, 'status_hipoteca'],
+    ];
+    for (const [label, value, statusKey] of encSections) {
+      if (y > 250) { doc.addPage(); y = 20; }
+      doc.setFontSize(11);
+      doc.setTextColor(...green);
+      doc.text(label, 14, y);
+      y += 5;
       doc.setTextColor(0, 0, 0);
-      y += 6;
-    } else {
-      const txt = safeText(value);
-      const lines = doc.splitTextToSize(txt, pageW - 28);
-      doc.text(lines, 14, y);
-      y += lines.length * 4 + 2;
+      doc.setFontSize(9);
+      if (isArrayOfObjects(value)) {
+        y = encumbranceTableForPdf(doc, y, value, statusKey);
+      } else if (Array.isArray(value) && value.length === 0) {
+        doc.setTextColor(120, 120, 120);
+        doc.text('Nenhum registrado', 14, y);
+        doc.setTextColor(0, 0, 0);
+        y += 6;
+      } else {
+        const txt = safeText(value);
+        const lines = doc.splitTextToSize(txt, pageW - 28);
+        doc.text(lines, 14, y);
+        y += lines.length * 4 + 2;
+      }
     }
+  } else {
+    doc.setTextColor(120, 120, 120);
+    doc.text('Nenhum ônus ativo identificado', 14, y);
+    doc.setTextColor(0, 0, 0);
+    y += 6;
   }
 
   // Outros campos textuais (servidões, ARL, APP, etc)
