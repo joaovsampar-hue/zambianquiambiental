@@ -226,29 +226,30 @@ function IdentificationTable({ data, updateField, path }: { data: any, updateFie
 }
 
 function TransmissionsTable({ transfers, updateField, path }: { transfers: any[], updateField?: (p: string, v: any) => void, path?: string }) {
+  const safeTransfers = transfers ?? [];
   return (
     <div className="space-y-4">
-      {(transfers ?? [{}]).map((_: any, i: number) => (
+      {(safeTransfers.length > 0 ? safeTransfers : [{}]).map((_: any, i: number) => (
         <div key={i} className="p-4 border border-border rounded-lg space-y-3">
           <p className="text-sm font-semibold text-primary">Transmissão {i + 1}</p>
           <div className="grid grid-cols-2 gap-3">
-            <FieldWithAiIndicator label="Data" value={transfers[i]?.date} onChange={v => {
-              const newT = [...transfers];
+            <FieldWithAiIndicator label="Data" value={safeTransfers[i]?.date} onChange={v => {
+              const newT = [...safeTransfers];
               newT[i] = { ...newT[i], date: v };
               updateField?.(path!, newT);
             }} />
-            <FieldWithAiIndicator label="Natureza do ato" value={transfers[i]?.nature} onChange={v => {
-              const newT = [...transfers];
+            <FieldWithAiIndicator label="Natureza do ato" value={safeTransfers[i]?.nature} onChange={v => {
+              const newT = [...safeTransfers];
               newT[i] = { ...newT[i], nature: v };
               updateField?.(path!, newT);
             }} />
-            <FieldWithAiIndicator label="Vendedor" value={transfers[i]?.seller} onChange={v => {
-              const newT = [...transfers];
+            <FieldWithAiIndicator label="Vendedor" value={safeTransfers[i]?.seller} onChange={v => {
+              const newT = [...safeTransfers];
               newT[i] = { ...newT[i], seller: v };
               updateField?.(path!, newT);
             }} />
-            <FieldWithAiIndicator label="Comprador" value={transfers[i]?.buyer} onChange={v => {
-              const newT = [...transfers];
+            <FieldWithAiIndicator label="Comprador" value={safeTransfers[i]?.buyer} onChange={v => {
+              const newT = [...safeTransfers];
               newT[i] = { ...newT[i], buyer: v };
               updateField?.(path!, newT);
             }} />
