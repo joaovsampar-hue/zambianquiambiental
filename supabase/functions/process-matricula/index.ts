@@ -209,15 +209,18 @@ serve(async (req) => {
       .download(pdfPath);
     if (downloadError) throw downloadError;
 
-    // Convert PDF to base64 for vision model (chunked to avoid stack overflow)
+    // Convert PDF to base64 for vision model (memory-efficient streaming encode)
     const arrayBuffer = await fileData.arrayBuffer();
-    const bytes = new Uint8Array(arrayBuffer);
-    let binary = "";
-    const CHUNK = 8192;
-    for (let i = 0; i < bytes.length; i += CHUNK) {
-      binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + CHUNK, bytes.length)));
+    const sizeMb = arrayBuffer.byteLength / (1024 * 1024);
+    console.log(`process-matricula: PDF size = ${sizeMb.toFixed(2)} MB`);
+    if (sizeMb > 20) {
+      return new Response(
+        JSON.stringify({ error: `PDF muito grande (${sizeMb.toFixed(1)} MB). Limite: 20 MB. Reduza o arquivo e tente novamente.` }),
+        { status: 413, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
-    const base64 = btoa(binary);
+    const { encodeBase64 } = await import("https://deno.land/std@0.224.0/encoding/base64.ts");
+    const base64 = encodeBase64(new Uint8Array(arrayBuffer));
 
     // Send to Lovable AI Gateway with vision
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
