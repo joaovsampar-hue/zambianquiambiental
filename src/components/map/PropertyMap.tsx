@@ -924,12 +924,34 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
 
     // Verifica se há polígono SNCI sob o ponto clicado (busca nos layers do snciGroup)
     let snciData: any = null;
-    snciGroupRef.current?.eachLayer((l: any) => {
-      if (snciData) return;
-      if (l._snciData) {
-        // Verifica se o layer contém o ponto clicado
-        const bounds = l.getBounds?.();
-        if (bounds?.contains([lat, lng])) snciData = l._snciData;
+    snciGroupRef.current?.eachLayer((groupLayer: any) => {
+      // snciGroup contém um único L.GeoJSON — iterar suas sub-layers
+      if (typeof groupLayer.eachLayer === 'function') {
+        groupLayer.eachLayer((l: any) => {
+          if (snciData) return;
+          if (!l._snciData) return;
+          // Testa se o ponto está dentro do polígono usando leaflet ou bounds
+          try {
+            // Tenta getBounds primeiro (funciona para polígonos simples)
+            const bounds = l.getBounds?.();
+            if (bounds && !bounds.contains([lat, lng])) return;
+            // Se passou pelo bounds, confirma com contains do L.Polygon se disponível
+            if (typeof l.contains === 'function') {
+              if (l.contains(L.latLng(lat, lng))) snciData = l._snciData;
+            } else if (bounds?.contains([lat, lng])) {
+              // Fallback: bounds é suficiente para polígonos não muito irregulares
+              snciData = l._snciData;
+            }
+          } catch {
+            // Ignora erros de geometria
+          }
+        });
+      } else if (groupLayer._snciData) {
+        // Layer direto (não agrupado)
+        try {
+          const bounds = groupLayer.getBounds?.();
+          if (bounds?.contains([lat, lng])) snciData = groupLayer._snciData;
+        } catch { /* ignore */ }
       }
     });
 
