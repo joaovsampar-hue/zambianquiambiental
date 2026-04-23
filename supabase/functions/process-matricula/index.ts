@@ -427,13 +427,14 @@ serve(async (req: Request) => {
 
     let parsed = tryParse(content);
 
-    // Retry quando parse falhou ou owners estão todos vazios
+    // Retry quando parse falhou, owners vazios OU conteúdo vazio (gateway truncado)
     const ownersEmpty = !parsed || !Array.isArray(parsed.owners) ||
       parsed.owners.length === 0 ||
       parsed.owners.every((o: any) => !o?.name);
+    const contentEmpty = !content || !content.trim();
 
-    if (ownersEmpty) {
-      console.log("process-matricula: 1ª chamada veio vazia, executando retry");
+    if (ownersEmpty || contentEmpty) {
+      console.log(`process-matricula: 1ª chamada inadequada (contentEmpty=${contentEmpty}, ownersEmpty=${ownersEmpty}), executando retry com gemini-2.5-pro`);
       const retryResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -441,7 +442,7 @@ serve(async (req: Request) => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
+          model: "google/gemini-2.5-pro",
           messages: [
             { role: "system", content: SYSTEM_PROMPT },
             {
