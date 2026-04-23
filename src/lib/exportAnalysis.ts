@@ -160,6 +160,13 @@ const LIMIT_NON_NAMES = new Set([
   'rumo', 'sentido', 'direção', 'distância', 'metros', 'conforme',
   'seguindo', 'margem', 'linha', 'reta', 'sinuosas', 'sempre',
   'encontrar', 'deflexão', 'ponto', 'marco', 'vértice',
+  // Termos jurídicos/cartorários que não são nomes de limites
+  'registro', 'ofício', 'judicial', 'respectivo', 'distrito',
+  'civil', 'comarca', 'cartório', 'averbação', 'matrícula',
+  'certidão', 'imóvel', 'proprietário', 'confrontante',
+  'nascente', 'poente', 'oriente', 'ocidente',
+  'referido', 'mencionado', 'descrito', 'denominado',
+  'este', 'esse', 'aquele', 'mesmo', 'próprio',
 ]);
 
 function extractLimits(roteiro: string): Array<{ tipo: string; nome: string }> {
@@ -187,6 +194,18 @@ function extractLimits(roteiro: string): Array<{ tipo: string; nome: string }> {
       const firstWord = raw.split(/\s+/)[0].toLowerCase().replace(/[^a-zà-ú]/g, '');
       if (LIMIT_NON_NAMES.has(firstWord)) continue;
       if (raw.length < 3 || raw.length > 60) continue;
+      // Rejeita nomes que contenham palavras de contexto jurídico
+      const lowerRaw = raw.toLowerCase();
+      if (/\b(registro|ofício|judicial|cartório|certidão|comarca|civil|respectivo|distrito)\b/.test(lowerRaw)) continue;
+      // Rejeita se a segunda palavra for articulador (indica continuação de frase, não nome)
+      const words = raw.split(/\s+/);
+      if (words.length >= 2) {
+        const secondWord = words[1].toLowerCase().replace(/[^a-zà-ú]/g, '');
+        if (['do', 'da', 'de', 'dos', 'das'].includes(secondWord) && words.length === 2) {
+          // "Rio do" sem complemento — ignora
+          continue;
+        }
+      }
       // Limita ao nome principal (até encontrar preposição de direção)
       const nome = raw
         .split(/\s+(?:e\s+segue|e\s+daí|e\s+segue\s+em|no\s+rumo|em\s+linha|na\s+dist|até\s+|conf|,\s*e\s+)/i)[0]

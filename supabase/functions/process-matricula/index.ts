@@ -241,7 +241,7 @@ serve(async (req) => {
           {
             role: "user",
             content: buildContent(
-              "Analise esta matrícula de imóvel rural (páginas em ordem) e extraia todos os dados no formato JSON especificado. Identifique todos os alertas relevantes.",
+              "Analise esta matrícula de imóvel rural. As imagens estão em ORDEM SEQUENCIAL de páginas — trate-as como um documento único contínuo.\n\nATENÇÃO ESPECIAL AOS SEGUINTES PONTOS:\n\n1. HIPOTECAS E CANCELAMENTOS: cada Registro (R.X) de hipoteca pode ter seu cancelamento em uma Averbação (AV.Y) em página posterior. Leia TODAS as páginas antes de determinar o status. Se encontrar 'AV.Y' que menciona cancelamento, baixa ou liquidação referente a 'R.X', marque R.X como cancelada com ato_cancelamento: 'AV.Y'. Só marque como 'ativa' se não houver NENHUMA averbação de cancelamento em todo o documento.\n\n2. CONFRONTANTES: o roteiro perimétrico pode usar tanto o formato moderno (sentido dos azimutes) quanto o formato antigo ('confronta ao norte com X, ao sul com Y, ao leste com Z, ao oeste com W'). Em AMBOS os casos, extraia os nomes dos confrontantes para os campos north/south/east/west e transcreva o texto completo em boundaries.roteiro. Confrontantes típicos: nomes de pessoas, denominações de fazendas/sítios, estradas, córregos, ribeirões.\n\n3. DOCUMENTOS ANTIGOS: matrículas anteriores a 1990 podem ter texto datilografado com baixa qualidade OCR. Faça o máximo esforço para ler abreviações e texto parcialmente ilegível.\n\nExtraia todos os dados no formato JSON especificado.",
             ),
           },
         ],
@@ -296,7 +296,7 @@ serve(async (req) => {
             {
               role: "user",
               content: buildContent(
-                "A análise anterior retornou campos vazios. Tente novamente com atenção máxima ao texto. O documento pode ter marca d'água intensa, ser datilografado ou ter baixa qualidade. Extraia qualquer dado legível. Para campos ilegíveis use '[ilegível]' em vez de string vazia.",
+                "A análise anterior retornou campos vazios ou incompletos. Tente novamente com atenção máxima ao texto. Analise esta matrícula de imóvel rural. As imagens estão em ORDEM SEQUENCIAL de páginas — trate-as como um documento único contínuo.\n\nATENÇÃO ESPECIAL AOS SEGUINTES PONTOS:\n\n1. HIPOTECAS E CANCELAMENTOS: cada Registro (R.X) de hipoteca pode ter seu cancelamento em uma Averbação (AV.Y) em página posterior. Leia TODAS as páginas antes de determinar o status. Se encontrar 'AV.Y' que menciona cancelamento, baixa ou liquidação referente a 'R.X', marque R.X como cancelada com ato_cancelamento: 'AV.Y'. Só marque como 'ativa' se não houver NENHUMA averbação de cancelamento em todo o documento.\n\n2. CONFRONTANTES: o roteiro perimétrico pode usar tanto o formato moderno (sentido dos azimutes) quanto o formato antigo ('confronta ao norte com X, ao sul com Y, ao leste com Z, ao oeste com W'). Em AMBOS os casos, extraia os nomes dos confrontantes para os campos north/south/east/west e transcreva o texto completo em boundaries.roteiro. Confrontantes típicos: nomes de pessoas, denominações de fazendas/sítios, estradas, córregos, ribeirões.\n\n3. DOCUMENTOS ANTIGOS: matrículas anteriores a 1990 podem ter texto datilografado com baixa qualidade OCR. Faça o máximo esforço para ler abreviações e texto parcialmente ilegível.\n\nExtraia todos os dados no formato JSON especificado.",
               ),
             },
           ],
