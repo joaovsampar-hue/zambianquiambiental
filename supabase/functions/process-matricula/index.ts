@@ -232,13 +232,32 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { analysisId, pdfPath, imagePaths } = await req.json();
-
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const lovableApiKey = Deno.env.get("LOVABLE_API_KEY");
 
     if (!lovableApiKey) throw new Error("LOVABLE_API_KEY not configured");
+
+    // ── AUTH: verify JWT before any AI/storage work to prevent
+    // unauthenticated callers from draining credits or extracting PDFs.
+    const authHeader = req.headers.get("Authorization") ?? "";
+    const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+    if (!token) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const authClient = createClient(supabaseUrl, anonKey);
+    const { data: userData, error: authErr } = await authClient.auth.getUser(token);
+    if (authErr || !userData?.user) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const userId = userData.user.id;
+
+    const { analysisId, pdfPath, imagePaths } = await req.json();
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
@@ -251,6 +270,22 @@ serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
+    // Defense-in-depth: every supplied path must live under the authenticated
+    // user's prefix in the matriculas bucket. Prevents an attacker from
+    // guessing other users' file paths to extract their content via the AI.
+    for (const p of imagePaths) {
+      if (typeof p !== "string" || !p.startsWith(`${userId}/`)) {
+        return new Response(JSON.stringify({ error: "Forbidden: path not owned by user" }), {
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+    if (pdfPath && (typeof pdfPath !== "string" || !pdfPath.startsWith(`${userId}/`))) {
+      return new Response(JSON.stringify({ error: "Forbidden: pdfPath not owned by user" }), {
+        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const signedUrls: string[] = [];
     for (const path of imagePaths) {
       const { data: s, error: sErr } = await supabase.storage
