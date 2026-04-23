@@ -336,71 +336,47 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
             const ufCode = uf.split('/')[0]?.trim() || '';
             const municipio = uf.split('/')[1]?.trim() || uf;
 
-            const btnId = `snci-neighbor-${String(codImovel).replace(/[^A-Za-z0-9]/g, '')}`;
-            const showBtn = !!onNeighborPick;
+            (layer as any)._snciProps = { nome, area: areaNum, certif, dataCert, codImovel, uf, processo, profissional, municipio, ufCode };
 
-            const html = `
-              <div class="text-xs space-y-1.5" style="min-width:240px">
+            layer.on('click', (e: any) => {
+              L.DomEvent.stopPropagation(e);
+              const map = mapInstance.current;
+              if (!map || !onNeighborPick) return;
+              const s = (layer as any)._snciProps;
+              const snciId = `SNCI:${String(s.codImovel)}`;
+              const btnId = `snci-btn-${String(s.codImovel).replace(/\W/g,'')}-${Date.now()}`;
+              const html = `<div class="text-xs space-y-1.5" style="min-width:240px">
                 <div class="font-semibold" style="color:#6B21A8">📋 SNCI/INCRA — 1ª Norma</div>
-                <div><span class="text-muted-foreground">Imóvel:</span> ${nome}</div>
-                <div><span class="text-muted-foreground">Área:</span> ${area}</div>
-                <div><span class="text-muted-foreground">Certificação:</span> ${certif}</div>
-                <div><span class="text-muted-foreground">Data:</span> ${dataCert}</div>
-                <div><span class="text-muted-foreground">Cód. imóvel:</span> ${codImovel}</div>
-                <div><span class="text-muted-foreground">UF/Município:</span> ${uf}</div>
-                <div><span class="text-muted-foreground">Processo:</span> ${processo}</div>
-                <div><span class="text-muted-foreground">Profissional:</span> ${profissional}</div>
-                ${showBtn ? `
-                <div class="pt-1">
-                  <button id="${btnId}" class="px-2 py-1 rounded bg-secondary text-secondary-foreground text-xs border border-border">
-                    + Listar como confrontante
-                  </button>
-                </div>` : ''}
+                <div><span class="text-muted-foreground">Imóvel:</span> ${s.nome}</div>
+                <div><span class="text-muted-foreground">Área:</span> ${s.area.toFixed(4)} ha</div>
+                <div><span class="text-muted-foreground">Certificação:</span> ${s.certif}</div>
+                <div><span class="text-muted-foreground">Data:</span> ${s.dataCert}</div>
+                <div><span class="text-muted-foreground">Cód. imóvel:</span> ${s.codImovel}</div>
+                <div><span class="text-muted-foreground">UF/Município:</span> ${s.uf}</div>
+                <div><span class="text-muted-foreground">Processo:</span> ${s.processo}</div>
+                <div><span class="text-muted-foreground">Profissional:</span> ${s.profissional}</div>
+                <div class="pt-1"><button id="${btnId}"
+                  class="px-2 py-1 rounded bg-secondary text-secondary-foreground text-xs border border-border">
+                  + Listar como confrontante</button></div>
               </div>`;
-
-            (layer as L.Path).bindPopup(html, { maxWidth: 320 });
-
-            layer.on('click', (_e: any) => {
-              // Não bloqueia propagação — permite que identifyAtPoint
-              // rode em paralelo e mostre dados do SICAR/SIGEF no mesmo ponto.
-            });
-
-            layer.on('popupopen', () => {
-              if (!showBtn) return;
-              document.getElementById(btnId)?.addEventListener('click', () => {
-                (layer as any).closePopup?.();
-
-                // Identificador único com prefixo SNCI: para não conflitar com CARs.
-                // Usamos o número da certificação como base do ID para permitir a reconstrução no ProcessDetailPage.
-                const snciId = `SNCI:${certif !== '—' ? certif : String(codImovel)}`;
-
-                // Armazena a geometry diretamente no cache para não precisar buscar no SICAR
-                if (!fetchedFeaturesRef.current.has(snciId)) {
-                  const geometry = (feat as GeoJSON.Feature).geometry as GeoJSON.Polygon | GeoJSON.MultiPolygon;
-                  fetchedFeaturesRef.current.set(snciId, {
-                    type: 'Feature',
-                    geometry,
-                    properties: {
-                      cod_imovel: snciId,
-                      area: areaNum,
-                      municipio: municipio,
-                      uf: ufCode,
-                      snci: true,
-                      num_certif: certif,
-                      nome_imove: nome,
-                    },
-                  });
-                }
-
-                onNeighborPick?.({
-                  car: snciId,           // prefixado com SNCI: — identifica a origem
-                  area: areaNum,
-                  municipio: municipio,
-                  uf: ufCode,
-                  matricula: certif !== '—' ? certif : undefined,
+              L.popup({ closeButton: true, autoClose: true, closeOnClick: true, maxWidth: 340 })
+                .setLatLng(e.latlng).setContent(html).openOn(map);
+              setTimeout(() => {
+                document.getElementById(btnId)?.addEventListener('click', () => {
+                  map.closePopup();
+                  if (!fetchedFeaturesRef.current.has(snciId)) {
+                    fetchedFeaturesRef.current.set(snciId, {
+                      type: 'Feature',
+                      geometry: (feat as GeoJSON.Feature).geometry as any,
+                      properties: { cod_imovel: snciId, area: s.area, municipio: s.municipio, uf: s.ufCode },
+                    });
+                  }
+                  onNeighborPick?.({ car: snciId, area: s.area, municipio: s.municipio, uf: s.ufCode,
+                    matricula: s.certif !== '—' ? s.certif : undefined });
                 });
-              });
+              }, 0);
             });
+
           },
         }).addTo(snciGroup);
       }
@@ -707,6 +683,7 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
 
     const fetchAndAdd = async () => {
       for (const car of newCars) {
+        if (car.startsWith('SNCI:')) continue;
         try {
           const result = await fetchCarPolygon(car);
           if (result.ok !== false) {
@@ -745,9 +722,9 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
   // F5 — Confrontantes em AMARELO (#EF9F27 fill 0.25, stroke #BA7517 1.5px).
   // Selecionado/cadastrado ganham realce mais forte para diferenciação visual.
   const styleForNeighbor = (car: string): L.PathOptions => {
-    const sanitized = sanitizeCar(car);
-    const isRegistered = registeredNeighborsRef.current.has(sanitized);
-    const isSelected = selectedNeighborsRef.current.has(sanitized);
+    const key = car.startsWith('SNCI:') ? car : sanitizeCar(car);
+    const isRegistered = registeredNeighborsRef.current.has(key);
+    const isSelected = selectedNeighborsRef.current.has(key);
 
     if (isRegistered) {
       // Cadastrado em process_neighbors — AMARELO
@@ -798,7 +775,8 @@ const PropertyMap = forwardRef<PropertyMapHandle, Props>(function PropertyMap(
         const sanitized = sanitizeCar(car);
         const path = layer as L.Path;
         path.setStyle(styleForNeighbor(car));
-        neighborLayersRef.current.set(sanitized, path);
+        const key = car.startsWith('SNCI:') ? car : sanitizeCar(car);
+        neighborLayersRef.current.set(key, path);
 
         const addBtnId = `neighbor-add-${sanitized.replace(/[^A-Za-z0-9]/g, '')}`;
         const toggleBtnId = `neighbor-toggle-${sanitized.replace(/[^A-Za-z0-9]/g, '')}`;

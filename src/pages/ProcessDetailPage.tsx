@@ -311,11 +311,11 @@ export default function ProcessDetailPage() {
               registeredNeighbors={registeredSet}
               selectedNeighbors={selectedNeighbors}
               onNeighborToggle={(car) => {
-                const sanitized = sanitizeCar(car);
+                const key = car.startsWith('SNCI:') ? car : sanitizeCar(car);
                 setSelectedNeighbors(prev => {
                   const next = new Set(prev);
-                  if (next.has(sanitized)) next.delete(sanitized);
-                  else next.add(sanitized);
+                  if (next.has(key)) next.delete(key);
+                  else next.add(key);
                   return next;
                 });
               }}
@@ -324,13 +324,10 @@ export default function ProcessDetailPage() {
                 setDetected(list.map(n => ({ ...n, car: sanitizeCar(n.car) })));
               }}
               onNeighborPick={(info) => {
-                // Adiciona ao painel de seleção acima do mapa (sem inserir no banco ainda).
-                // O usuário confirma o cadastro pelo botão no DetectedNeighborsPanel.
-                const sanitized = sanitizeCar(info.car);
+                const key = info.car.startsWith('SNCI:') ? info.car : sanitizeCar(info.car);
                 setDetected(prev => {
-                  // Evita duplicatas — se já estiver na lista, não adiciona novamente.
-                  if (prev.some(d => d.car === sanitized)) return prev;
-                  return [...prev, { ...info, car: sanitized, matricula: info.matricula }];
+                  if (prev.some(d => d.car === key)) return prev;
+                  return [...prev, { ...info, car: key, matricula: info.matricula }];
                 });
               }}
             />
