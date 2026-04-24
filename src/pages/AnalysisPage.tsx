@@ -293,7 +293,6 @@ const consolidateEncumbrances = (matriculasData: any[]) => {
       return match?.[1] || null;
     })();
     const regNum = regNumFromId || regNumFromAto || `Mat. ${matIdx + 1}`;
-    const enc = m.extracted_data.encumbrances || {};
     if (Array.isArray(enc.mortgage)) {
       enc.mortgage.filter((h: any) => h.status_hipoteca !== 'cancelada').forEach((h: any) => all.push({ ...h, _matricula: regNum, _tipo: 'Hipoteca' }));
     }
