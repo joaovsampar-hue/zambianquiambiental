@@ -154,7 +154,13 @@ serve(async (req: Request) => {
       if (dErr) throw dErr;
       
       const buffer = await blob.arrayBuffer();
-      const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+      const bytes = new Uint8Array(buffer);
+      let binary = "";
+      const CHUNK = 8192;
+      for (let i = 0; i < bytes.length; i += CHUNK) {
+        binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + CHUNK, bytes.length)));
+      }
+      const base64 = btoa(binary);
       imageParts.push({ inlineData: { mimeType: "image/jpeg", data: base64 } });
     }
 

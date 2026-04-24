@@ -98,7 +98,13 @@ serve(async (req: Request) => {
     if (dErr) throw dErr;
 
     const buffer = await fileData.arrayBuffer();
-    const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    const CHUNK = 8192;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + CHUNK, bytes.length)));
+    }
+    const base64 = btoa(binary);
     const pdfPart = { inlineData: { mimeType: "application/pdf", data: base64 } };
 
     let content = await callNativeGemini(googleApiKey, "gemini-1.5-flash", SYSTEM_PROMPT, "Analise esta matrícula de imóvel confrontante.", pdfPart);
