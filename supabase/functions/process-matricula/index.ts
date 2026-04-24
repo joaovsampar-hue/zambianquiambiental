@@ -6,7 +6,9 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const SYSTEM_PROMPT = `Você é um especialista em análise de matrículas de imóveis rurais brasileiros para fins de georreferenciamento SIGEF.
+const SYSTEM_PROMPT = `REGRA ABSOLUTA: Extraia dados EXCLUSIVAMENTE do documento PDF fornecido nesta requisição. Jamais utilize nomes, CPFs, RGs ou qualquer dado de análises anteriores, exemplos ou sessões anteriores. Se um dado não estiver claramente visível no documento, retorne null. Nunca infira, complete ou invente dados.
+
+Você é um especialista em análise de matrículas de imóveis rurais brasileiros para fins de georreferenciamento SIGEF.
 
 Analise o texto/imagem da matrícula fornecida e extraia TODOS os dados disponíveis no seguinte formato JSON:
 
@@ -161,11 +163,11 @@ Exemplos corretos:
 ✗ comunhão parcial + antes_da_vigencia_6515 (IMPOSSÍVEL — corrigir para comunhão universal)
 
 Quando a matrícula declarar 'comunhão de bens, anteriormente à vigência da Lei nº 6.515/77' ou variações similares ('comunhão universal de bens, anterior à Lei 6.515', 'sob regime de comunhão, antes da Lei do Divórcio'):
-- marriage_regime: 'comunhão universal de bens'
+- marriage_regime: 'comunhão universal de bens (anterior à Lei 6.515/77 — CC/1916)'
 - vigencia_lei_divorcio: 'antes_da_vigencia_6515'
 Esta leitura direta tem precedência sobre o fallback por data.
 
-IMPORTANTE: o campo marriage_regime deve conter SOMENTE o nome do regime de bens (ex: 'comunhão parcial de bens', 'comunhão universal de bens'). NÃO inclua referências à lei, datas ou vigência dentro deste campo — essas informações vão exclusivamente no campo vigencia_lei_divorcio. Exemplos corretos: 'comunhão parcial de bens' (não 'comunhão parcial de bens (Lei 6.515/77)'). O sistema irá compor automaticamente o texto completo usando os dois campos separados.
+
 
 INSTRUÇÃO 6 — ÔNUS REAIS — IDENTIFICAÇÃO DE STATUS (HIPOTECAS, ALIENAÇÕES FIDUCIÁRIAS E PENHORAS):
 Para CADA ônus real encontrado (hipoteca, alienação fiduciária e penhora), verifique se existe ato posterior de cancelamento, baixa, quitação ou liberação na mesma matrícula que faça referência ao número do ato, livro ou folha do ônus original. Quando houver mais de um ônus do mesmo tipo, retorne o respectivo campo SEMPRE como ARRAY de objetos no formato: [{ "descricao": "...", "ato_origem": "...", "status_<tipo>": "ativa" | "cancelada" | "indefinida", "ato_cancelamento": "..." | null }]. O campo de status segue a convenção: hipoteca → "status_hipoteca"; alienação fiduciária → "status_fiduciaria"; penhora → "status_penhora".
@@ -194,9 +196,9 @@ Reconheça como cancelamento de hipoteca ou cédula rural hipotecária qualquer 
 INSTRUÇÃO 7 — REGIME DE CASAMENTO E ENQUADRAMENTO LEGISLATIVO:
 
 O campo vigencia_lei_divorcio deve refletir o enquadramento legal do casamento em um dos três períodos históricos da legislação brasileira de regime de bens. Os valores possíveis agora são:
-- 'antes_da_vigencia_6515': casamento sob o Código Civil de 1916 (antes de 26/12/1977) — regime padrão era comunhão universal de bens
-- 'vigencia_6515': casamento sob a Lei 6.515/77 (de 26/12/1977 a 10/01/2003) — regime padrão passou a ser comunhão parcial de bens
-- 'vigencia_cc2002': casamento sob o Código Civil de 2002 — Lei 10.406/2002 (a partir de 11/01/2003) — mantém comunhão parcial como padrão; separação obrigatória para maiores de 70 anos (após Lei 12.344/2010)
+- 'antes_da_vigencia_6515': casamento sob o Código Civil de 1916 (antes de 26/12/1977) — regime padrão era comunhão universal de bens (anterior à Lei 6.515/77 — CC/1916)
+- 'vigencia_6515': casamento sob a Lei 6.515/77 (de 26/12/1977 a 10/01/2003) — regime padrão passou a ser comunhão parcial de bens (na vigência da Lei 6.515/77)
+- 'vigencia_cc2002': casamento sob o Código Civil de 2002 — Lei 10.406/2002 (a partir de 11/01/2003) — mantém comunhão parcial como padrão (na vigência do CC/2002 — Lei 10.406/2002); separação obrigatória para maiores de 70 anos (após Lei 12.344/2010)
 - 'nao_identificado': quando não for possível determinar por nenhuma das regras abaixo
 
 REGRA 1 — LEITURA DIRETA DO TEXTO DA MATRÍCULA (tem precedência absoluta):
@@ -293,7 +295,31 @@ EXEMPLO para matrícula 6.420:
 - JOÃO CORNACINI: recebeu 50% por herança (R.1), doou ao filho Nilton reservando usufruto vitalício (R.3).
   role: 'usufrutuario', share_percentage: '50%', share_usufruto: '50%', usufruto_tipo: 'vitalicio', usufruto_ato: 'R.3-M/6.420'
 - NILTON VICENTE CORNACINI: recebeu 50% por herança (R.1 — propriedade plena) E 50% por doação de João (R.3 — nua-propriedade).
-  role: 'nu_proprietario_e_proprietario_pleno', share_nu_propriedade: '50%', share_propriedade_plena: '50%', share_percentage: '100%'`;
+  role: 'nu_proprietario_e_proprietario_pleno', share_nu_propriedade: '50%', share_propriedade_plena: '50%', share_percentage: '100%'
+
+INSTRUÇÃO 13 — Usufrutuário é o BENEFICIÁRIO, não o instituidor:
+Ao identificar usufrutuários, o campo deve conter o nome de quem RECEBE o direito de usufruto. Nunca confunda com quem institui ou transmite o usufruto. Exemplo correto: no texto "João constitui usufruto vitalício em favor de Maria" → usufrutuário = Maria. Exemplo errado: usufrutuário = João.
+
+INSTRUÇÃO 14 — CPF e RG pertencem ao bloco imediatamente anterior:
+Cada CPF ou RG encontrado no documento deve ser associado SOMENTE ao nome que aparece no mesmo parágrafo ou bloco textual. Nunca carregue um documento identificador para um proprietário diferente do bloco onde foi encontrado. Em caso de ambiguidade, retorne null para o campo em questão.
+
+INSTRUÇÃO 15 — Viuvez detectada em qualquer parte do documento tem precedência:
+Varra todo o documento em busca dos termos: "viúvo", "viúva", "em estado de viuvez", "falecido seu cônjuge", "falecida sua cônjuge", averbação de óbito de cônjuge. Se qualquer um desses termos for encontrado associado a um proprietário, seu estado civil deve ser obrigatoriamente "viúvo" ou "viúva", independentemente do estado civil declarado no ato de aquisição. Esta regra tem precedência sobre a instrução 3 e 3B.
+
+INSTRUÇÃO 16 — Cônjuge não pode ser reutilizado entre proprietários:
+O campo cônjuge de cada proprietário deve ser preenchido SOMENTE com o cônjuge declarado no mesmo ato ou bloco daquele proprietário específico. É terminantemente proibido atribuir o cônjuge de um proprietário a outro proprietário. Se o cônjuge não for mencionado explicitamente junto ao proprietário em questão, retorne null para esse campo.
+
+INSTRUÇÃO 17 — Denominação do imóvel: atenção a nomes de santos e topônimos:
+Ao extrair a denominação do imóvel, leia com atenção especial nomes compostos, especialmente os que começam com "São", "Santa", "Santo", "Nossa Senhora" e similares. Nunca fragmente o nome do imóvel. Se o texto estiver ilegível, busque o nome em outros atos do mesmo documento que referenciem o imóvel. Exemplo de erro a evitar: ler "Sítio São José" como "Sítio João Sé".
+
+INSTRUÇÃO 18 — Três períodos legislativos para regime de casamento (reforço da instrução 7):
+Ao determinar o regime de casamento, siga obrigatoriamente:
+
+- Casamento ANTERIOR a 26/12/1977: regime padrão presumido é COMUNHÃO UNIVERSAL DE BENS (CC/1916, antes da Lei 6.515/77). Retorne: "comunhão universal de bens (anterior à Lei 6.515/77 — CC/1916)"
+- Casamento entre 26/12/1977 e 10/01/2003: regime padrão presumido é COMUNHÃO PARCIAL DE BENS (na vigência da Lei 6.515/77). Retorne: "comunhão parcial de bens (na vigência da Lei 6.515/77)"
+- Casamento APÓS 10/01/2003: regime padrão presumido é COMUNHÃO PARCIAL DE BENS (na vigência do CC/2002). Retorne: "comunhão parcial de bens (na vigência do CC/2002 — Lei 10.406/2002)"
+
+O texto explícito do documento tem SEMPRE precedência sobre a data inferida. Se o documento declarar o regime expressamente, use o declarado.`;
 
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
