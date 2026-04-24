@@ -280,13 +280,14 @@ const consolidateOwners = (matriculasData: any[]) => {
 const consolidateEncumbrances = (matriculasData: any[]) => {
   const all: any[] = [];
   matriculasData.forEach((m, matIdx) => {
-    const regNumFromId = m.extracted_data.identification?.registration_number;
+    const enc = m.extracted_data?.encumbrances ?? {};
+    const regNumFromId = m.extracted_data?.identification?.registration_number;
     const regNumFromAto = (() => {
       // Tenta extrair número de matrícula do padrão "M/NUMERO" no primeiro ônus
       const firstEnc = [
-        ...(Array.isArray(m.extracted_data.encumbrances?.mortgage) ? m.extracted_data.encumbrances.mortgage : []),
-        ...(Array.isArray(m.extracted_data.encumbrances?.fiduciary_alienation) ? m.extracted_data.encumbrances.fiduciary_alienation : []),
-        ...(Array.isArray(m.extracted_data.encumbrances?.seizure) ? m.extracted_data.encumbrances.seizure : []),
+        ...(Array.isArray(enc.mortgage) ? enc.mortgage : []),
+        ...(Array.isArray(enc.fiduciary_alienation) ? enc.fiduciary_alienation : []),
+        ...(Array.isArray(enc.seizure) ? enc.seizure : []),
       ][0];
       const match = firstEnc?.ato_origem?.match(/M\/(\d+[\.\d]*)/);
       return match?.[1] || null;
@@ -367,6 +368,7 @@ export default function AnalysisPage() {
   const [isProcessingNew, setIsProcessingNew] = useState(false);
   const [newProgress, setNewProgress] = useState(0);
   const [newStep, setNewStep] = useState('');
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
 
   if (analysis && !formData) {
     const ed = JSON.parse(JSON.stringify((analysis.extracted_data as any) ?? {}));
@@ -379,47 +381,94 @@ export default function AnalysisPage() {
     setFormData(ed);
   }
 
-  const handleAddMatricula = async () => {
-    if (!newFile || !id) return;
+  const handleAddMultipleMatriculas = async () => {
+    if (pendingFiles.length === 0 || !id) return;
     setIsProcessingNew(true);
-    setNewProgress(0);
-    setNewStep('Preparando upload...');
+    setNewProgress(5);
+    setNewStep(`Preparando ${pendingFiles.length} arquivo(s)...`);
+
     try {
-      const ts = Date.now();
-      const filePath = `${analysis.created_by}/${ts}_${newFile.name}`;
-      const { error: uploadError } = await supabase.storage.from('matriculas').upload(filePath, newFile);
-      if (uploadError) throw uploadError;
-      setNewProgress(20);
-      setNewStep('Convertendo páginas em imagens...');
-      const pageBlobs = await rasterizePdfToJpegs(newFile);
-      const pagesPrefix = `${analysis.created_by}/${ts}_pages`;
-      const imagePaths: string[] = [];
-      for (let i = 0; i < pageBlobs.length; i++) {
-        const path = `${pagesPrefix}/page-${String(i + 1).padStart(3, '0')}.jpg`;
-        const { error: pErr } = await supabase.storage.from('matriculas').upload(path, pageBlobs[i], { contentType: 'image/jpeg' });
-        if (pErr) throw pErr;
-        imagePaths.push(path);
-      }
-      setNewProgress(50);
-      setNewStep('Analisando com IA...');
-      const { data: funcData, error: funcError } = await supabase.functions.invoke('process-matricula', { body: { analysisId: id, pdfPath: filePath, imagePaths } });
-      if (funcError) throw funcError;
-      setNewProgress(90);
-      const extracted = funcData.extracted_data;
-      if (extracted?.owners) { extracted.owners = deduplicateConjuges(extracted.owners); }
-      const newEntry = { pdf_name: newFile.name, extracted_data: extracted || {}, alerts: funcData.alerts || [], status: extracted?.identification?.registration_number ? 'completed' : 'empty' as const };
+      // Processa todos os arquivos em paralelo
+      const results = await Promise.allSettled(
+        pendingFiles.map(async (file, fileIdx) => {
+          const ts = Date.now() + fileIdx; // ts único por arquivo
+          const filePath = `${analysis.created_by}/${ts}_${file.name}`;
+
+          // Upload do PDF
+          const { error: uploadError } = await supabase.storage
+            .from('matriculas').upload(filePath, file);
+          if (uploadError) throw uploadError;
+
+          // Rasterizar
+          const pageBlobs = await rasterizePdfToJpegs(file);
+          const pagesPrefix = `${analysis.created_by}/${ts}_pages`;
+          const imagePaths: string[] = [];
+          for (let i = 0; i < pageBlobs.length; i++) {
+            const path = `${pagesPrefix}/page-${String(i+1).padStart(3,'0')}.jpg`;
+            const { error: pErr } = await supabase.storage
+              .from('matriculas').upload(path, pageBlobs[i], { contentType: 'image/jpeg' });
+            if (pErr) throw pErr;
+            imagePaths.push(path);
+          }
+
+          // Analisar
+          const { data: funcData, error: funcError } = await supabase.functions
+            .invoke('process-matricula', { body: { analysisId: id, pdfPath: filePath, imagePaths } });
+          if (funcError) throw funcError;
+
+          const extracted = funcData.extracted_data ?? {};
+          if (extracted.owners) {
+            extracted.owners = deduplicateConjuges(extracted.owners);
+          }
+          return {
+            pdf_name: file.name,
+            extracted_data: extracted,
+            alerts: funcData.alerts ?? [],
+            status: extracted?.identification?.registration_number
+              ? 'completed' : 'empty',
+          };
+        })
+      );
+
+      setNewProgress(85);
+      setNewStep('Consolidando resultados...');
+
+      // Monta novas entradas
+      const newEntries = results.map((r, i) => {
+        if (r.status === 'fulfilled') return r.value;
+        return {
+          pdf_name: pendingFiles[i].name,
+          extracted_data: { identification: {}, owners: [], boundaries: {},
+            encumbrances: {}, transfers: [] },
+          alerts: [{ severity: 'critical',
+            message: `Falha na análise: ${r.reason?.message ?? 'Erro desconhecido'}` }],
+          status: 'error',
+          error: r.reason?.message,
+        };
+      });
+
       let updatedMatriculasData = [...(formData.matriculas_data || [])];
+
+      // Migra análise original se ainda não está em matriculas_data
       if (updatedMatriculasData.length === 0 && formData.identification) {
-        updatedMatriculasData.push({ pdf_name: analysis.pdf_path?.split('/').pop() || 'Matrícula Original', extracted_data: JSON.parse(JSON.stringify(formData)), alerts: analysis.alerts || [], status: 'completed' as const });
+        updatedMatriculasData.push({
+          pdf_name: analysis.pdf_path?.split('/').pop() || 'Matrícula Original',
+          extracted_data: JSON.parse(JSON.stringify(formData)),
+          alerts: analysis.alerts || [],
+          status: 'completed',
+        });
       }
-      updatedMatriculasData.push(newEntry);
+
+      updatedMatriculasData = [...updatedMatriculasData, ...newEntries];
 
       // Propagação de falecimentos
       const deceasedNames = new Set<string>();
       updatedMatriculasData.forEach(m => {
         (m.alerts ?? []).forEach((a: any) => {
           if (a.message?.includes('[FALECIMENTO]')) {
-            const match = a.message.match(/proprietári[oa]\s+([A-ZÁÉÍÓÚÂÊÎÔÛÃÕÇ][A-ZÁÉÍÓÚÂÊÎÔÛÃÕÇa-záéíóúâêîôûãõç\s]+?)\s+consta/i);
+            const match = a.message.match(
+              /proprietári[oa]\s+([A-ZÁÉÍÓÚÂÊÎÔÛÃÕÇ][A-ZÁÉÍÓÚÂÊÎÔÛÃÕÇa-záéíóúâêîôûãõç\s]+?)\s+consta/i
+            );
             if (match?.[1]) deceasedNames.add(match[1].trim().toUpperCase());
           }
         });
@@ -440,23 +489,30 @@ export default function AnalysisPage() {
             });
             if (isDead) {
               changed = true;
-              if (!newAlerts.some(a => a.message?.includes('[FALECIMENTO]') && a.message?.includes(o.name))) {
-                newAlerts.push({ severity: 'critical', message: `[FALECIMENTO DETECTADO EM OUTRA MATRÍCULA] ${o.name} consta como falecido em outra matrícula. Removido da matrícula ${mRegNum}.` });
-                if (o.share_percentage) newAlerts.push({ severity: 'critical', message: `[ESPÓLIO PENDENTE] A fração de ${o.share_percentage} pertencente a ${o.name} na matrícula ${mRegNum} pode requerer verificação de inventário.` });
+              if (!newAlerts.some(a =>
+                a.message?.includes('[FALECIMENTO]') && a.message?.includes(o.name)
+              )) {
+                newAlerts.push({ severity: 'critical',
+                  message: `[FALECIMENTO DETECTADO EM OUTRA MATRÍCULA] ${o.name} consta como falecido em outra matrícula. Removido da matrícula ${mRegNum}.` });
+                if (o.share_percentage) newAlerts.push({ severity: 'critical',
+                  message: `[ESPÓLIO PENDENTE] A fração de ${o.share_percentage} pertencente a ${o.name} na matrícula ${mRegNum} pode requerer verificação de inventário.` });
               }
             } else newOwners.push(o);
           }
           if (!changed) return m;
-          return { ...m, alerts: newAlerts, extracted_data: { ...m.extracted_data, owners: newOwners } };
+          return { ...m, alerts: newAlerts,
+            extracted_data: { ...m.extracted_data, owners: newOwners } };
         });
       }
 
+      setNewProgress(95);
       setFormData((prev: any) => ({ ...prev, matriculas_data: updatedMatriculasData }));
       setIsAddModalOpen(false);
-      setNewFile(null);
-      toast({ title: 'Nova matrícula adicionada!' });
+      setPendingFiles([]);
+      toast({ title: `${newEntries.length} matrícula(s) adicionada(s)!` });
+
     } catch (e: any) {
-      toast({ title: 'Erro ao adicionar matrícula', description: e.message, variant: 'destructive' });
+      toast({ title: 'Erro ao adicionar matrículas', description: e.message, variant: 'destructive' });
     } finally {
       setIsProcessingNew(false);
       setNewStep('');
@@ -747,29 +803,103 @@ export default function AnalysisPage() {
         </div>
       </div>
 
-      <Dialog open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader><DialogTitle>Adicionar Matrícula à Análise</DialogTitle></DialogHeader>
+      <Dialog open={isAddModalOpen} onOpenChange={(open) => { if (!open) { setIsAddModalOpen(false); setPendingFiles([]); } else { setIsAddModalOpen(true); } }}>
+        <DialogContent className="sm:max-w-[560px]">
+          <DialogHeader>
+            <DialogTitle>Adicionar Matrícula(s) à Análise</DialogTitle>
+          </DialogHeader>
           <div className="space-y-4 py-4">
-            <div onClick={() => document.getElementById('new-pdf-input')?.click()} className="border-2 border-dashed border-border rounded-xl p-8 text-center cursor-pointer hover:border-primary/50 hover:bg-accent/30 transition-colors">
-              <input id="new-pdf-input" type="file" accept=".pdf" className="hidden" onChange={e => setNewFile(e.target.files?.[0] || null)} />
-              {newFile ? (
-                <div className="flex items-center justify-center gap-3">
-                  <FileText className="w-8 h-8 text-primary" />
-                  <div className="text-left"><p className="font-medium text-sm">{newFile.name}</p><p className="text-xs text-muted-foreground">{(newFile.size / 1024 / 1024).toFixed(2)} MB</p></div>
-                </div>
-              ) : (<div><Upload className="w-8 h-8 mx-auto text-muted-foreground mb-2" /><p className="text-sm font-medium">Clique para selecionar o PDF</p></div>)}
+            {/* Área de upload */}
+            <div
+              onClick={() => document.getElementById('new-pdf-input')?.click()}
+              className="border-2 border-dashed border-border rounded-xl p-6 text-center 
+                         cursor-pointer hover:border-primary/50 hover:bg-accent/30 transition-colors"
+            >
+              <input
+                id="new-pdf-input"
+                type="file"
+                accept=".pdf"
+                multiple
+                className="hidden"
+                onChange={e => {
+                  const files = Array.from(e.target.files ?? []);
+                  setPendingFiles(prev => {
+                    // Evita duplicatas por nome
+                    const names = new Set(prev.map(f => f.name));
+                    return [...prev, ...files.filter(f => !names.has(f.name))];
+                  });
+                  // Reset input para permitir adicionar mesmo arquivo depois
+                  e.target.value = '';
+                }}
+              />
+              <Upload className="w-7 h-7 mx-auto text-muted-foreground mb-2" />
+              <p className="text-sm font-medium">Clique para adicionar PDFs</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Selecione um ou mais arquivos
+              </p>
             </div>
+
+            {/* Lista de arquivos pendentes */}
+            {pendingFiles.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">
+                  {pendingFiles.length} arquivo(s) para analisar:
+                </p>
+                {pendingFiles.map((f, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center justify-between px-3 py-2 
+                               bg-muted/40 rounded-lg border border-border"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <FileText className="w-4 h-4 text-primary flex-shrink-0" />
+                      <span className="text-xs truncate">{f.name}</span>
+                      <span className="text-[10px] text-muted-foreground flex-shrink-0">
+                        {(f.size / 1024 / 1024).toFixed(1)} MB
+                      </span>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 flex-shrink-0"
+                      onClick={() => setPendingFiles(prev => prev.filter((_, j) => j !== i))}
+                      disabled={isProcessingNew}
+                    >
+                      <X className="w-3 h-3" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Progress */}
             {isProcessingNew && (
               <div className="space-y-2">
-                <div className="flex justify-between text-xs"><span className="text-muted-foreground">{newStep}</span><span className="font-medium">{newProgress}%</span></div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-muted-foreground">{newStep}</span>
+                  <span className="font-medium">{newProgress}%</span>
+                </div>
                 <Progress value={newProgress} />
               </div>
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsAddModalOpen(false)} disabled={isProcessingNew}>Cancelar</Button>
-            <Button onClick={handleAddMatricula} disabled={!newFile || isProcessingNew}>{isProcessingNew ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Processando...</> : 'Confirmar e Analisar'}</Button>
+            <Button
+              variant="outline"
+              onClick={() => { setIsAddModalOpen(false); setPendingFiles([]); }}
+              disabled={isProcessingNew}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleAddMultipleMatriculas}
+              disabled={pendingFiles.length === 0 || isProcessingNew}
+            >
+              {isProcessingNew
+                ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Analisando...</>
+                : `Analisar (${pendingFiles.length} arquivo${pendingFiles.length > 1 ? 's' : ''})`
+              }
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

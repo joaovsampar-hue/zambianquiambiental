@@ -364,7 +364,16 @@ serve(async (req: Request) => {
     console.log(`process-matricula: ${signedUrls.length} page image(s) signed`);
 
     const buildContent = (text: string) => [
-      { type: "text", text },
+      { 
+        type: "text", 
+        text: `ATENÇÃO: Esta é uma análise completamente independente e isolada.
+Ignore qualquer contexto de matrículas analisadas anteriormente nesta sessão.
+Os dados desta matrícula não têm relação com nenhum imóvel analisado antes.
+Extraia SOMENTE os dados presentes nas imagens fornecidas abaixo.
+Se um nome, CPF ou imóvel não aparecer nestas imagens, NÃO o inclua na resposta.
+
+${text}` 
+      },
       ...signedUrls.map((url) => ({ type: "image_url", image_url: { url } })),
     ];
 
@@ -377,6 +386,7 @@ serve(async (req: Request) => {
       },
       body: JSON.stringify({
         model: "google/gemini-2.5-flash",
+        temperature: 0,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           {
@@ -443,6 +453,7 @@ serve(async (req: Request) => {
         },
         body: JSON.stringify({
           model: "google/gemini-2.5-flash",
+          temperature: 0,
           messages: [
             { role: "system", content: SYSTEM_PROMPT },
             {
