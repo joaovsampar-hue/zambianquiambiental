@@ -355,10 +355,10 @@ const tryParseJson = (content: string): any => {
 };
 
 async function callAI(apiKey: string, messages: any[]): Promise<string> {
-  const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+  const r = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "google/gemini-2.5-flash", temperature: 0, messages }),
+    body: JSON.stringify({ model: "gemini-2.5-flash", temperature: 0, messages }),
   });
   if (!r.ok) {
     const t = await r.text();
@@ -378,8 +378,8 @@ serve(async (req: Request) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const lovableApiKey = Deno.env.get("LOVABLE_API_KEY");
-    if (!lovableApiKey) throw new Error("LOVABLE_API_KEY not configured");
+    const googleApiKey = Deno.env.get("GOOGLE_API_KEY");
+    if (!googleApiKey) throw new Error("GOOGLE_API_KEY not configured");
 
     // ── AUTH: require valid JWT to prevent credit drain and PDF exfiltration.
     const authHeader = req.headers.get("Authorization") ?? "";
@@ -429,7 +429,7 @@ serve(async (req: Request) => {
     ];
 
     // 1) Primeira chamada
-    const content1 = await callAI(lovableApiKey, [
+    const content1 = await callAI(googleApiKey, [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userContent },
     ]);
@@ -458,7 +458,7 @@ serve(async (req: Request) => {
       console.log("F4: 1ª chamada veio vazia, executando retry com prompt de fallback");
       const fallbackInstruction = "A análise anterior retornou campos vazios. O documento pode ter qualidade baixa, marca d'água intensa ou formatação não convencional. Tente novamente com máxima atenção ao texto disponível. Extraia qualquer dado legível, mesmo que parcial. Para campos que não for possível ler com certeza, use '[ilegível]' em vez de null.";
       try {
-        const content2 = await callAI(lovableApiKey, [
+        const content2 = await callAI(googleApiKey, [
           { role: "system", content: SYSTEM_PROMPT },
           {
             role: "user",
@@ -501,7 +501,7 @@ serve(async (req: Request) => {
       console.log(`Retry para ${incompletos.length} proprietário(s) sem dados documentais`);
       for (const prop of incompletos) {
         try {
-          const retryContent = await callAI(lovableApiKey, [
+          const retryContent = await callAI(googleApiKey, [
             { role: "system", content: "Você é um especialista em matrículas imobiliárias brasileiras. Retorne SOMENTE JSON válido." },
             {
               role: "user",
@@ -543,7 +543,7 @@ serve(async (req: Request) => {
     const status = msg === "RATE_LIMIT" ? 429 : msg === "NO_CREDITS" ? 402 : 500;
     const userMsg =
       msg === "RATE_LIMIT" ? "Limite de requisições excedido. Aguarde alguns minutos." :
-        msg === "NO_CREDITS" ? "Créditos de IA esgotados. Adicione créditos no workspace." :
+        msg === "NO_CREDITS" ? "Cota da API do Google atingida. Verifique o Google AI Studio." :
           msg;
     console.error("analyze-neighbor-matricula error:", e);
     return new Response(JSON.stringify({ error: userMsg }), {

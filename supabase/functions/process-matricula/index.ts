@@ -351,9 +351,8 @@ serve(async (req: Request) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const lovableApiKey = Deno.env.get("LOVABLE_API_KEY");
-
-    if (!lovableApiKey) throw new Error("LOVABLE_API_KEY not configured");
+    const googleApiKey = Deno.env.get("GOOGLE_API_KEY");
+    if (!googleApiKey) throw new Error("GOOGLE_API_KEY not configured");
 
     // ── AUTH: verify JWT before any AI/storage work to prevent
     // unauthenticated callers from draining credits or extracting PDFs.
@@ -426,15 +425,15 @@ ${text}`
       ...signedUrls.map((url) => ({ type: "image_url", image_url: { url } })),
     ];
 
-    // Send to Lovable AI Gateway with vision
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    // Send to Google AI Studio API (OpenAI-compatible endpoint)
+    const response = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${lovableApiKey}`,
+        Authorization: `Bearer ${googleApiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: "gemini-2.5-flash",
         temperature: 0,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
@@ -457,7 +456,7 @@ ${text}`
         });
       }
       if (response.status === 402) {
-        return new Response(JSON.stringify({ error: "Créditos de IA insuficientes." }), {
+        return new Response(JSON.stringify({ error: "Cota da API do Google atingida. Verifique o Google AI Studio." }), {
           status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
@@ -494,14 +493,14 @@ ${text}`
 
     if (ownersEmpty || contentEmpty) {
       console.log(`process-matricula: 1ª chamada inadequada (contentEmpty=${contentEmpty}, ownersEmpty=${ownersEmpty}), executando retry com gemini-2.5-pro`);
-      const retryResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      const retryResp = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${lovableApiKey}`,
+          Authorization: `Bearer ${googleApiKey}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "google/gemini-2.5-pro",
+          model: "gemini-2.5-pro",
           temperature: 0,
           messages: [
             { role: "system", content: SYSTEM_PROMPT },
