@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { Bot, Upload, Loader2, Trash2, MapPin, FileText, User, Building, Plus } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
+import { uploadPdfPagesAsJpegs } from '@/lib/pdfRasterize';
 
 interface NeighborPdf {
   file_name: string;
@@ -130,14 +131,17 @@ export default function BoundariesTab({ formData, updateField, getField }: Bound
     const pdfIdx = updated[index].pdfs.length - 1;
 
     try {
-      const filePath = `${user.id}/neighbor_${Date.now()}_${file.name}`;
+      const ts = Date.now();
+      const filePath = `${user.id}/neighbor_${ts}_${file.name}`;
       const { error: uploadError } = await supabase.storage.from('matriculas').upload(filePath, file);
       if (uploadError) throw uploadError;
-      setProgress(30);
+      setProgress(20);
 
+      const imagePaths = await uploadPdfPagesAsJpegs(file, user.id, `${user.id}/neighbor_${ts}_pages`, supabase);
       setProgress(50);
+
       const { data: funcData, error: funcError } = await supabase.functions.invoke('process-matricula', {
-        body: { analysisId: null, pdfPath: filePath },
+        body: { analysisId: null, pdfPath: filePath, imagePaths },
       });
       if (funcError) throw funcError;
       setProgress(90);

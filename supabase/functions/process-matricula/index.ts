@@ -416,18 +416,17 @@ ${text}`
     }
 
     const rawText = await response.text();
-    if (!rawText || !rawText.trim()) {
-      console.error("AI Gateway returned empty body (status", response.status, ")");
-      throw new Error("AI Gateway retornou resposta vazia. Tente novamente — o documento pode ser muito grande.");
+    let aiResponse: any = null;
+    if (rawText && rawText.trim()) {
+      try {
+        aiResponse = JSON.parse(rawText);
+      } catch (parseErr) {
+        console.error("Failed to parse AI Gateway response:", rawText.slice(0, 500));
+      }
+    } else {
+      console.error("AI Gateway returned empty body (status", response.status, ") — will fallback to gemini-2.5-pro");
     }
-    let aiResponse: any;
-    try {
-      aiResponse = JSON.parse(rawText);
-    } catch (parseErr) {
-      console.error("Failed to parse AI Gateway response:", rawText.slice(0, 500));
-      throw new Error("Resposta inválida do AI Gateway (JSON malformado).");
-    }
-    const content = aiResponse.choices?.[0]?.message?.content ?? "";
+    const content = aiResponse?.choices?.[0]?.message?.content ?? "";
 
     const tryParse = (raw: string) => {
       try {
@@ -438,13 +437,14 @@ ${text}`
 
     let parsed = tryParse(content);
 
-    // Retry quando parse falhou ou owners estão todos vazios
+    // Retry quando parse falhou, owners vazios OU conteúdo vazio (gateway truncado)
     const ownersEmpty = !parsed || !Array.isArray(parsed.owners) ||
       parsed.owners.length === 0 ||
       parsed.owners.every((o: any) => !o?.name);
+    const contentEmpty = !content || !content.trim();
 
-    if (ownersEmpty) {
-      console.log("process-matricula: 1ª chamada veio vazia, executando retry");
+    if (ownersEmpty || contentEmpty) {
+      console.log(`process-matricula: 1ª chamada inadequada (contentEmpty=${contentEmpty}, ownersEmpty=${ownersEmpty}), executando retry com gemini-2.5-pro`);
       const retryResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -452,7 +452,7 @@ ${text}`
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
+          model: "google/gemini-2.5-pro",
           temperature: 0,
           messages: [
             { role: "system", content: SYSTEM_PROMPT },
