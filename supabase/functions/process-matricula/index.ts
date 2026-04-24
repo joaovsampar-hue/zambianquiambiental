@@ -449,18 +449,20 @@ ${text}`
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("AI Gateway error:", response.status, errorText);
+      console.error(`Google API error (${response.status}):`, errorText);
       if (response.status === 429) {
-        return new Response(JSON.stringify({ error: "Limite de requisições excedido. Tente novamente em alguns minutos." }), {
+        return new Response(JSON.stringify({ error: "Limite de requisições excedido no Google AI Studio. Tente novamente em alguns minutos." }), {
           status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      if (response.status === 402) {
-        return new Response(JSON.stringify({ error: "Cota da API do Google atingida. Verifique o Google AI Studio." }), {
-          status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      if (response.status === 402 || response.status === 403) {
+        return new Response(JSON.stringify({ error: "Erro de permissão ou cota na API do Google. Verifique o Google AI Studio.", details: errorText }), {
+          status: response.status, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      throw new Error(`AI Gateway error: ${response.status}`);
+      return new Response(JSON.stringify({ error: `Erro na API do Google (${response.status})`, details: errorText }), {
+        status: response.status, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     const rawText = await response.text();

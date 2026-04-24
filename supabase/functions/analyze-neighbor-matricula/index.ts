@@ -362,10 +362,8 @@ async function callAI(apiKey: string, messages: any[]): Promise<string> {
   });
   if (!r.ok) {
     const t = await r.text();
-    console.error("AI Gateway error:", r.status, t.slice(0, 300));
-    if (r.status === 429) throw new Error("RATE_LIMIT");
-    if (r.status === 402) throw new Error("NO_CREDITS");
-    throw new Error(`AI_GATEWAY_${r.status}`);
+    console.error(`Google API error (${r.status}):`, t.slice(0, 500));
+    throw new Error(`GOOGLE_API_ERROR_${r.status}_${t}`);
   }
   const j = await r.json();
   return j.choices?.[0]?.message?.content ?? "";
@@ -540,12 +538,22 @@ serve(async (req: Request) => {
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Unknown error";
-    const status = msg === "RATE_LIMIT" ? 429 : msg === "NO_CREDITS" ? 402 : 500;
+    console.error("analyze-neighbor-matricula error:", e);
+    
+    if (msg.startsWith("GOOGLE_API_ERROR_")) {
+      const parts = msg.split("_");
+      const status = parseInt(parts[3]);
+      const details = msg.substring(msg.indexOf(parts[4]));
+      return new Response(JSON.stringify({ error: `Erro na API do Google (${status})`, details }), {
+        status: status || 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const status = msg === "RATE_LIMIT" ? 429 : (msg === "NO_CREDITS" ? 402 : 500);
     const userMsg =
-      msg === "RATE_LIMIT" ? "Limite de requisições excedido. Aguarde alguns minutos." :
+      msg === "RATE_LIMIT" ? "Limite de requisições excedido no Google AI Studio. Aguarde alguns minutos." :
         msg === "NO_CREDITS" ? "Cota da API do Google atingida. Verifique o Google AI Studio." :
           msg;
-    console.error("analyze-neighbor-matricula error:", e);
     return new Response(JSON.stringify({ error: userMsg }), {
       status, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
