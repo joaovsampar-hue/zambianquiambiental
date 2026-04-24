@@ -388,10 +388,14 @@ export default function AnalysisPage() {
     setNewStep(`Preparando ${pendingFiles.length} arquivo(s)...`);
 
     try {
-      // Processa todos os arquivos em paralelo
-      const results = await Promise.allSettled(
-        pendingFiles.map(async (file, fileIdx) => {
-          const ts = Date.now() + fileIdx; // ts único por arquivo
+      const results = [];
+      for (let i = 0; i < pendingFiles.length; i++) {
+        const file = pendingFiles[i];
+        setNewStep(`Processando ${i + 1} de ${pendingFiles.length}: ${file.name}...`);
+        setNewProgress(10 + (i / pendingFiles.length) * 70);
+
+        try {
+          const ts = Date.now() + i;
           const filePath = `${analysis.created_by}/${ts}_${file.name}`;
 
           // Upload do PDF
@@ -403,10 +407,10 @@ export default function AnalysisPage() {
           const pageBlobs = await rasterizePdfToJpegs(file);
           const pagesPrefix = `${analysis.created_by}/${ts}_pages`;
           const imagePaths: string[] = [];
-          for (let i = 0; i < pageBlobs.length; i++) {
-            const path = `${pagesPrefix}/page-${String(i+1).padStart(3,'0')}.jpg`;
+          for (let j = 0; j < pageBlobs.length; j++) {
+            const path = `${pagesPrefix}/page-${String(j + 1).padStart(3, '0')}.jpg`;
             const { error: pErr } = await supabase.storage
-              .from('matriculas').upload(path, pageBlobs[i], { contentType: 'image/jpeg' });
+              .from('matriculas').upload(path, pageBlobs[j], { contentType: 'image/jpeg' });
             if (pErr) throw pErr;
             imagePaths.push(path);
           }
@@ -414,21 +418,37 @@ export default function AnalysisPage() {
           // Analisar
           const { data: funcData, error: funcError } = await supabase.functions
             .invoke('process-matricula', { body: { analysisId: id, pdfPath: filePath, imagePaths } });
-          if (funcError) throw funcError;
+          
+          if (funcError) {
+            // Se for erro de cota, tenta dar um pequeno sleep e avisar o usuário
+            if (funcError.message?.includes('429')) {
+              throw new Error("Limite de cota do Google atingido (429). Aguarde 1 minuto.");
+            }
+            throw funcError;
+          }
 
           const extracted = funcData.extracted_data ?? {};
           if (extracted.owners) {
             extracted.owners = deduplicateConjuges(extracted.owners);
           }
-          return {
-            pdf_name: file.name,
-            extracted_data: extracted,
-            alerts: funcData.alerts ?? [],
-            status: extracted?.identification?.registration_number
-              ? 'completed' : 'empty',
-          };
-        })
-      );
+          
+          results.push({
+            status: 'fulfilled' as const,
+            value: {
+              pdf_name: file.name,
+              extracted_data: extracted,
+              alerts: funcData.alerts ?? [],
+              status: extracted?.identification?.registration_number ? 'completed' : 'empty',
+            }
+          });
+        } catch (err: any) {
+          console.error(`Erro no arquivo ${file.name}:`, err);
+          results.push({
+            status: 'rejected' as const,
+            reason: err
+          });
+        }
+      }
 
       setNewProgress(85);
       setNewStep('Consolidando resultados...');
