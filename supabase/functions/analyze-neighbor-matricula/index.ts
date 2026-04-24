@@ -252,11 +252,55 @@ Para o DONATÁRIO que recebeu com ônus de usufruto:
 Gerar alerta:
 { 'severity': 'info', 'message': '[USUFRUTO ATIVO] [NOME] possui usufruto [vitalício/temporário] sobre [X%] do imóvel conforme [ATO]. Para o georreferenciamento SIGEF, Nu-Proprietário e Usufrutuário devem assinar a documentação em conjunto.' }
 
-EXEMPLO para matrícula 6.420:
-- JOÃO CORNACINI: recebeu 50% por herança (R.1), doou ao filho Nilton reservando usufruto vitalício (R.3).
-  role: 'usufrutuario', share_percentage: '50%', share_usufruto: '50%', usufruto_tipo: 'vitalicio', usufruto_ato: 'R.3-M/6.420'
-- NILTON VICENTE CORNACINI: recebeu 50% por herança (R.1 — propriedade plena) E 50% por doação de João (R.3 — nua-propriedade).
-  role: 'nu_proprietario_e_proprietario_pleno', share_nu_propriedade: '50%', share_propriedade_plena: '50%', share_percentage: '100%'`;
+EXEMPLO GENÉRICO de usufruto com doação:
+- DOADOR (reservou usufruto para si): role: 'usufrutuario', share_percentage: '50%', share_usufruto: '50%', usufruto_tipo: 'vitalicio', usufruto_ato: 'R.X-M/XXXXX'
+- DONATÁRIO (recebeu nua-propriedade + tem fração plena por herança): role: 'nu_proprietario_e_proprietario_pleno', share_nu_propriedade: '50%', share_propriedade_plena: '50%', share_percentage: '100%'
+
+INSTRUÇÃO 13 — Usufrutuário: quem detém o direito de uso, não necessariamente quem institui:
+Existem dois padrões de usufruto — leia o texto com atenção para identificar qual é o caso:
+
+PADRÃO A — Doador reserva para si: "fulano doa, reservando para si o usufruto vitalício"
+→ usufrutuário = fulano (o doador reservou o uso para ele mesmo)
+→ nu-proprietário = quem recebeu a doação
+
+PADRÃO B — Usufruto constituído em favor de terceiro: "fulano constitui usufruto em favor de beltrano"
+→ usufrutuário = beltrano (quem recebeu o benefício)
+→ nu-proprietário ou proprietário pleno = fulano
+
+NUNCA assuma automaticamente que o doador ou o instituidor é o usufrutuário — leia qual padrão se aplica ao ato específico.
+
+INSTRUÇÃO 14 — CPF e RG pertencem ao bloco imediatamente anterior:
+Cada CPF ou RG encontrado no documento deve ser associado SOMENTE ao nome que aparece no mesmo parágrafo ou bloco textual. Nunca carregue um documento identificador para um proprietário diferente do bloco onde foi encontrado. Em caso de ambiguidade, retorne null para o campo em questão.
+
+INSTRUÇÃO 15 — VIUVEZ TEM PRECEDÊNCIA ABSOLUTA SOBRE ESTADO CIVIL DO ATO:
+Antes de registrar o estado civil de qualquer proprietário, varra TODO o documento incluindo: atos de aquisição, averbações, campo Observações e qualquer texto livre, em busca dos termos: "viúvo", "viúva", "em estado de viuvez", "falecido seu cônjuge", "falecida sua cônjuge", "viúvo(a) meeiro(a)", averbação de óbito do cônjuge, ou qualquer menção a falecimento do cônjuge em qualquer parte do documento.
+Se qualquer um desses termos for encontrado associado a um proprietário em QUALQUER PONTO do documento, o estado civil DEVE ser obrigatoriamente "viúvo" ou "viúva".
+Esta regra tem precedência absoluta sobre o estado civil declarado no ato de aquisição, mesmo que o ato diga "casado(a)".
+Nunca retorne "casado" ou "casada" para uma person cujo cônjuge conste como falecido em qualquer parte do documento.
+
+INSTRUÇÃO 16 — Cônjuge não pode ser reutilizado entre proprietários:
+O campo cônjuge de cada proprietário deve ser preenchido SOMENTE com o cônjuge declarado no mesmo ato ou bloco daquele proprietário específico. É terminantemente proibido atribuir o cônjuge de um proprietário a outro proprietário. Se o cônjuge não for mencionado explicitamente junto ao proprietário em questão, retorne null para esse campo.
+
+INSTRUÇÃO 17 — Denominação do imóvel: atenção a nomes de santos e topônimos:
+Ao extrair a denominação do imóvel, leia com atenção especial nomes compostos, especialmente os que começam com "São", "Santa", "Santo", "Nossa Senhora" e similares. Nunca fragmente o nome do imóvel. Exemplo de erro a evitar: ler "Sítio São José" como "Sítio João Sé".
+
+INSTRUÇÃO 18 — Três períodos legislativos para regime de casamento:
+- Casamento ANTERIOR a 26/12/1977: regime padrão é COMUNHÃO UNIVERSAL DE BENS (CC/1916, antes da Lei 6.515/77)
+- Casamento entre 26/12/1977 e 10/01/2003: regime padrão é COMUNHÃO PARCIAL DE BENS (na vigência da Lei 6.515/77)
+- Casamento APÓS 10/01/2003: regime padrão é COMUNHÃO PARCIAL DE BENS (na vigência do CC/2002)
+O texto explícito do documento tem SEMPRE precedência sobre a data inferida.
+
+INSTRUÇÃO 19 — CPF e RG pertencem ao titular, nunca ao cônjuge:
+O CPF e o RG do cônjuge devem ser preenchidos SOMENTE com documentos explicitamente declarados como sendo do cônjuge no texto.
+É PROIBIDO copiar o CPF ou RG do proprietário principal para o campo do cônjuge.
+Se o documento do cônjuge não estiver declarado no texto, retorne null nesses campos.
+Nunca reutilize o mesmo número de CPF ou RG para proprietário e cônjuge simultaneamente.
+
+INSTRUÇÃO 20 — Atos anulados, cancelados ou revertidos não geram proprietários atuais:
+Ao identificar proprietários pela Instrução 3, verifique se o ato de aquisição foi posteriormente ANULADO, CANCELADO ou REVERTIDO por ato posterior registrado na mesma matrícula.
+Sinais de anulação: "fica sem efeito", "anulado por", "declarado nulo", "cancelado o registro", "revertido ao", "voltou a", "retornou para", "foi anulada a transferência".
+Se um ato de doação ou transmissão foi anulado, os adquirentes daquele ato NÃO são proprietários atuais.
+Atenção especial ao campo Observações: se ele descrever uma sequência de atos e reversões, use apenas a situação jurídica final descrita.`;
 
 const RETRY_PROMPT = (nome: string) =>
   `Na análise anterior NÃO foram encontrados CPF e RG do proprietário atual "${nome}". Pesquise em TODOS os atos anteriores desta matrícula — compra e venda, inventários, formais de partilha, averbações — e retorne quaisquer dados documentais (CPF, RG, órgão emissor, data de nascimento) associados ao nome "${nome}". Retorne SOMENTE JSON no formato:
@@ -314,7 +358,7 @@ async function callAI(apiKey: string, messages: any[]): Promise<string> {
   const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "google/gemini-2.5-flash", messages }),
+    body: JSON.stringify({ model: "google/gemini-2.5-flash", temperature: 0, messages }),
   });
   if (!r.ok) {
     const t = await r.text();
